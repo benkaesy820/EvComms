@@ -43,4 +43,4 @@ ENV PORT=7860
 #
 # If the container crashes on start, swap to the other one.
 # ─────────────────────────────────────────────────────────────────────────────
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/src/index.js"]
