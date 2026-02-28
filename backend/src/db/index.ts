@@ -47,6 +47,10 @@ const BOOT_OPTIMIZE = `PRAGMA optimize`
 
 let client: Client | null = null
 let db: LibSQLDatabase<typeof schema> | null = null
+let embeddedReplicaClient: any = null
+let syncIntervalHandle: ReturnType<typeof setInterval> | null = null
+
+const EMBEDDED_SYNC_INTERVAL_MS = 60_000
 
 const DEFAULT_DB_TIMEOUT_MS = 8000
 
@@ -149,6 +153,7 @@ async function createDbClient(): Promise<any> {
     }
 
     logger.info('Database: Turso embedded replica mode (@libsql/client)')
+    embeddedReplicaClient = rawClient
   }
   // LOCAL FILE MODE: plain local SQLite (no cloud sync)
   else if (url.startsWith('file:')) {
@@ -177,6 +182,19 @@ export async function initDb(): Promise<LibSQLDatabase<typeof schema>> {
   // Drizzle expects a `@libsql/client` (or heavily compatible duck-type interface)
   db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
   dbReady = Promise.resolve()
+
+  // Start periodic sync for embedded replica mode
+  if (embeddedReplicaClient && typeof embeddedReplicaClient.sync === 'function') {
+    syncIntervalHandle = setInterval(async () => {
+      try {
+        await embeddedReplicaClient.sync()
+      } catch (err) {
+        logger.warn({ err }, 'Embedded replica periodic sync failed')
+      }
+    }, EMBEDDED_SYNC_INTERVAL_MS)
+    logger.info({ intervalMs: EMBEDDED_SYNC_INTERVAL_MS }, 'Embedded replica periodic sync started')
+  }
+
   return db
 }
 
@@ -289,10 +307,17 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
 }
 
 export async function closeDb(): Promise<void> {
+  if (syncIntervalHandle) {
+    clearInterval(syncIntervalHandle)
+    syncIntervalHandle = null
+    logger.info('Embedded replica sync interval cleared')
+  }
+
   if (client) {
     await client.close()
     client = null
     db = null
+    embeddedReplicaClient = null
     logger.info('Database connection closed')
   }
 }
