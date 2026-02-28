@@ -389,9 +389,11 @@ export function validateCsrf(request: FastifyRequest): boolean {
 }
 
 export function clearAuthCookies(reply: FastifyReply): void {
-  reply.clearCookie('token', { path: '/' })
-  reply.clearCookie('refresh_token', { path: '/api/auth/refresh' })
-  reply.clearCookie(CSRF_COOKIE, { path: '/' })
+  const isProd = env.nodeEnv === 'production'
+  const shared = { secure: isProd, sameSite: isProd ? 'none' as const : 'lax' as const }
+  reply.clearCookie('token', { path: '/', ...shared })
+  reply.clearCookie('refresh_token', { path: '/api/auth/refresh', ...shared })
+  reply.clearCookie(CSRF_COOKIE, { path: '/', ...shared })
 }
 
 export function sendError(

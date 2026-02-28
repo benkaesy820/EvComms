@@ -401,7 +401,6 @@ export async function authRoutes(fastify: FastifyInstance) {
     })
 
     return sendOk(reply, {
-      token,
       csrfToken: cookies.csrfToken,
       user: {
         id: user.id,
@@ -885,24 +884,17 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     return sendOk(reply, {
       message: 'Password updated',
-      token,
       csrfToken,
     })
   })
 
-  const refreshTokenSchema = z.object({
-    refreshToken: z.string().min(1).max(200)
-  })
-
   fastify.post('/refresh', { preHandler: rateLimiters.api }, async (request, reply) => {
-    // Attempt to extract refresh token from HttpOnly cookie first, fallback to body for backwards compat
-    const bodyResult = refreshTokenSchema.safeParse(request.body || {})
+    // Refresh token must come from the httpOnly cookie only
     const cookieToken = request.cookies.refresh_token
-    const rawToken = cookieToken || (bodyResult.success ? bodyResult.data.refreshToken : null)
-
-    if (!rawToken) {
-      return sendError(reply, 400, 'VALIDATION_ERROR', 'Refresh token is required')
+    if (!cookieToken) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'Refresh token cookie missing')
     }
+    const rawToken = cookieToken
 
     try {
       const now = new Date()
@@ -1009,7 +1001,6 @@ export async function authRoutes(fastify: FastifyInstance) {
 
       const cookies = issueAuthCookies(reply, newToken, newRefreshToken)
       return sendOk(reply, {
-        token: newToken,
         csrfToken: cookies.csrfToken,
         user: {
           id: user.id,
