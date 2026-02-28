@@ -12,7 +12,7 @@ import { ulid } from 'ulid'
 import * as schema from '../src/db/schema.js'
 
 // ── Config ——————————————————————————————————————————————————
-const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@wighaven.com'
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@evcomms.com'
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'Admin1234!'
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME ?? 'Super Admin'
 
