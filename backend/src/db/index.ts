@@ -1,7 +1,5 @@
-import { drizzle } from 'drizzle-orm/libsql/http'
-import type { LibSQLDatabase } from 'drizzle-orm/libsql/driver-core'
-import type { Client } from '@libsql/client/http'
-import { createClient as createHttpClient } from '@libsql/client/http'
+import { drizzle, LibSQLDatabase } from 'drizzle-orm/libsql'
+import { createClient, type Client } from '@libsql/client'
 import { and, isNull, lt, inArray, isNotNull, or } from 'drizzle-orm'
 import { env } from '../lib/env.js'
 import { logger } from '../lib/logger.js'
@@ -49,6 +47,10 @@ const BOOT_OPTIMIZE = `PRAGMA optimize`
 
 let client: Client | null = null
 let db: LibSQLDatabase<typeof schema> | null = null
+let embeddedReplicaClient: any = null
+let syncIntervalHandle: ReturnType<typeof setInterval> | null = null
+
+const EMBEDDED_SYNC_INTERVAL_MS = 60_000
 
 const DEFAULT_DB_TIMEOUT_MS = 8000
 
@@ -117,7 +119,8 @@ function wrapDbClientWithResilience(baseClient: Client): Client {
   }) as Client
 }
 
-
+// Removed appliedBootPragmas since @tursodatabase/sync manages its own underlying SQLite pragmas (WAL/synchronous)
+// and running them concurrently/randomly breaks the client synchronization process.
 
 async function createDbClient(): Promise<any> {
   if (client) return client
@@ -130,18 +133,18 @@ async function createDbClient(): Promise<any> {
 
   logger.info({ url, syncUrl, hasAuth: !!authToken }, 'Initializing database connection...')
 
-  // EMBEDDED REPLICA MODE — requires native @libsql/client (local file + cloud sync).
-  // Dynamic import so the native binary is only loaded when actually needed (Linux production).
+  // EMBEDDED REPLICA MODE — @libsql/client handles local file + cloud sync natively.
+  // This is the officially supported way to do embedded replicas with Turso + Drizzle.
+  // The client exposes the full execute/batch/close interface Drizzle requires.
   if (url.startsWith('file:') && syncUrl && authToken) {
-    const { createClient } = await import('@libsql/client')
     rawClient = createClient({
       url,
       syncUrl,
       authToken,
-      syncInterval: 60,
     })
 
-    // Initial sync — pull schema + data from Turso cloud before any queries
+    // Perform an initial sync so the local replica has the schema and data
+    // before any service (e.g. media cleanup) queries it.
     try {
       await rawClient.sync()
       logger.info('Database: initial sync complete')
@@ -149,35 +152,22 @@ async function createDbClient(): Promise<any> {
       logger.warn({ err }, 'Database: initial sync failed — local replica may be stale')
     }
 
-    // Apply safe pragmas — skip WAL/synchronous/mmap (the embedded replica client manages its own)
-    for (const pragma of BOOT_PRAGMAS) {
-      if (LOCAL_ONLY_PRAGMAS.has(pragma)) continue
-      try { await rawClient.execute(pragma) } catch { }
-    }
-    try { await rawClient.execute(BOOT_OPTIMIZE) } catch { }
-
-    logger.info('Database: Turso embedded replica mode (syncInterval: 60s)')
+    logger.info('Database: Turso embedded replica mode (@libsql/client)')
+    embeddedReplicaClient = rawClient
   }
-  // LOCAL FILE MODE: plain local SQLite (no cloud sync) — also needs native client
+  // LOCAL FILE MODE: plain local SQLite (no cloud sync)
   else if (url.startsWith('file:')) {
-    const { createClient } = await import('@libsql/client')
     rawClient = createClient({ url })
-    // Apply all BOOT_PRAGMAS for plain local SQLite
-    for (const pragma of BOOT_PRAGMAS) {
-      try { await rawClient.execute(pragma) } catch { }
-    }
-    try { await rawClient.execute(BOOT_OPTIMIZE) } catch { }
+    try { await rawClient.execute('PRAGMA journal_mode = WAL') } catch { }
     logger.info({ url: url.substring(0, 20) + '...' }, 'Database: local file mode')
   }
-  // REMOTE TURSO: HTTP-only client (no native deps — works on Windows)
+  // REMOTE TURSO: direct cloud HTTP connection
   else {
     if (!authToken) {
       throw new Error('TURSO_AUTH_TOKEN is required for remote database')
     }
-    rawClient = createHttpClient({ url, authToken })
-    // foreign_keys works over HTTP too — critical for cascade correctness
-    try { await rawClient.execute('PRAGMA foreign_keys = ON') } catch { }
-    logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode (HTTP)')
+    rawClient = createClient({ url, authToken })
+    logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode')
   }
 
   client = wrapDbClientWithResilience(rawClient)
@@ -189,16 +179,22 @@ export async function initDb(): Promise<LibSQLDatabase<typeof schema>> {
 
   const rawClientRef = await createDbClient()
 
-  // For remote mode: use drizzle-orm/libsql/http (pure JS, no native deps).
-  // For embedded/local mode: drizzle-orm/libsql is dynamically imported above.
-  const isRemote = !env.databaseUrl.startsWith('file:')
-  if (isRemote) {
-    db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
-  } else {
-    const { drizzle: nativeDrizzle } = await import('drizzle-orm/libsql')
-    db = nativeDrizzle(rawClientRef as any, { schema, logger: env.isDev })
-  }
+  // Drizzle expects a `@libsql/client` (or heavily compatible duck-type interface)
+  db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
   dbReady = Promise.resolve()
+
+  // Start periodic sync for embedded replica mode
+  if (embeddedReplicaClient && typeof embeddedReplicaClient.sync === 'function') {
+    syncIntervalHandle = setInterval(async () => {
+      try {
+        await embeddedReplicaClient.sync()
+      } catch (err) {
+        logger.warn({ err }, 'Embedded replica periodic sync failed')
+      }
+    }, EMBEDDED_SYNC_INTERVAL_MS)
+    logger.info({ intervalMs: EMBEDDED_SYNC_INTERVAL_MS }, 'Embedded replica periodic sync started')
+  }
+
   return db
 }
 
@@ -273,7 +269,7 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
 
       if (expiredSessions.length === 0) break
 
-      const sessionIds = expiredSessions.map((s: { id: string }) => s.id)
+      const sessionIds = expiredSessions.map(s => s.id)
 
       await database.transaction(async (tx) => {
         await tx.update(refreshTokens)
@@ -311,10 +307,17 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
 }
 
 export async function closeDb(): Promise<void> {
+  if (syncIntervalHandle) {
+    clearInterval(syncIntervalHandle)
+    syncIntervalHandle = null
+    logger.info('Embedded replica sync interval cleared')
+  }
+
   if (client) {
     await client.close()
     client = null
     db = null
+    embeddedReplicaClient = null
     logger.info('Database connection closed')
   }
 }

@@ -1,51 +1,70 @@
-# ── Dependencies ──────────────────────────────────────────────────────────────
+# Node
 node_modules/
-
-# ── Build Output ──────────────────────────────────────────────────────────────
 dist/
 dist-ssr/
 build/
 .next/
 out/
-
-# ── Environment Variables (contain secrets — never commit) ────────────────────
-.env
-.env.local
-.env.*.local
-production.env
-
-# ── SQLite / Turso Local Replica ──────────────────────────────────────────────
-*.db
-*.db-shm
-*.db-wal
-*.db-journal
-
-# ── Logs ──────────────────────────────────────────────────────────────────────
-logs/
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.pnpm-debug.log*
 lerna-debug.log*
 
-# ── IDEs and Editors ─────────────────────────────────────────────────────────
-.vscode/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment Variables
+.env
+.env.*
+*.local
+production.env
+
+# IDEs and Editors
+.vscode/*
 !.vscode/extensions.json
 .idea/
 *.swp
 *.swo
+*.sw?
+*~
+.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
-*~
 
-# ── OS ────────────────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# Logs
+logs
+*.log
 
-# ── Misc ──────────────────────────────────────────────────────────────────────
-*.local
-.wrangler/
+# Backend Database
+local.db
+local.db-info
+local.db-shm
+local.db-wal
+drizzle.config.ts
+
+# Turso/SSL
+cacert.pem
