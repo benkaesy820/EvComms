@@ -4,7 +4,7 @@
  * Run: npx tsx scripts/seed-admin.ts
  */
 import 'dotenv/config'
-import { hash } from '@node-rs/argon2'
+import { hash } from '../src/lib/argon2.js'
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
 import { eq } from 'drizzle-orm'

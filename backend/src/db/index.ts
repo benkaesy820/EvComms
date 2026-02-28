@@ -1,5 +1,7 @@
-import { drizzle, LibSQLDatabase } from 'drizzle-orm/libsql'
-import { createClient, type Client } from '@libsql/client'
+import { drizzle } from 'drizzle-orm/libsql/http'
+import type { LibSQLDatabase } from 'drizzle-orm/libsql/driver-core'
+import type { Client } from '@libsql/client/http'
+import { createClient as createHttpClient } from '@libsql/client/http'
 import { and, isNull, lt, inArray, isNotNull, or } from 'drizzle-orm'
 import { env } from '../lib/env.js'
 import { logger } from '../lib/logger.js'
@@ -128,10 +130,10 @@ async function createDbClient(): Promise<any> {
 
   logger.info({ url, syncUrl, hasAuth: !!authToken }, 'Initializing database connection...')
 
-  // EMBEDDED REPLICA MODE — @libsql/client handles local file + cloud sync natively.
-  // This is the officially supported way to do embedded replicas with Turso + Drizzle.
-  // The client exposes the full execute/batch/close interface Drizzle requires.
+  // EMBEDDED REPLICA MODE — requires native @libsql/client (local file + cloud sync).
+  // Dynamic import so the native binary is only loaded when actually needed (Linux production).
   if (url.startsWith('file:') && syncUrl && authToken) {
+    const { createClient } = await import('@libsql/client')
     rawClient = createClient({
       url,
       syncUrl,
@@ -156,8 +158,9 @@ async function createDbClient(): Promise<any> {
 
     logger.info('Database: Turso embedded replica mode (syncInterval: 60s)')
   }
-  // LOCAL FILE MODE: plain local SQLite (no cloud sync)
+  // LOCAL FILE MODE: plain local SQLite (no cloud sync) — also needs native client
   else if (url.startsWith('file:')) {
+    const { createClient } = await import('@libsql/client')
     rawClient = createClient({ url })
     // Apply all BOOT_PRAGMAS for plain local SQLite
     for (const pragma of BOOT_PRAGMAS) {
@@ -166,15 +169,15 @@ async function createDbClient(): Promise<any> {
     try { await rawClient.execute(BOOT_OPTIMIZE) } catch { }
     logger.info({ url: url.substring(0, 20) + '...' }, 'Database: local file mode')
   }
-  // REMOTE TURSO: direct cloud HTTP connection
+  // REMOTE TURSO: HTTP-only client (no native deps — works on Windows)
   else {
     if (!authToken) {
       throw new Error('TURSO_AUTH_TOKEN is required for remote database')
     }
-    rawClient = createClient({ url, authToken })
+    rawClient = createHttpClient({ url, authToken })
     // foreign_keys works over HTTP too — critical for cascade correctness
     try { await rawClient.execute('PRAGMA foreign_keys = ON') } catch { }
-    logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode')
+    logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode (HTTP)')
   }
 
   client = wrapDbClientWithResilience(rawClient)
@@ -186,8 +189,15 @@ export async function initDb(): Promise<LibSQLDatabase<typeof schema>> {
 
   const rawClientRef = await createDbClient()
 
-  // Drizzle expects a `@libsql/client` (or heavily compatible duck-type interface)
-  db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
+  // For remote mode: use drizzle-orm/libsql/http (pure JS, no native deps).
+  // For embedded/local mode: drizzle-orm/libsql is dynamically imported above.
+  const isRemote = !env.databaseUrl.startsWith('file:')
+  if (isRemote) {
+    db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
+  } else {
+    const { drizzle: nativeDrizzle } = await import('drizzle-orm/libsql')
+    db = nativeDrizzle(rawClientRef as any, { schema, logger: env.isDev })
+  }
   dbReady = Promise.resolve()
   return db
 }
@@ -263,7 +273,7 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
 
       if (expiredSessions.length === 0) break
 
-      const sessionIds = expiredSessions.map(s => s.id)
+      const sessionIds = expiredSessions.map((s: { id: string }) => s.id)
 
       await database.transaction(async (tx) => {
         await tx.update(refreshTokens)
