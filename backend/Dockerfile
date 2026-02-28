@@ -1,7 +1,7 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/backend
 
 # Install deps (including devDeps needed for tsc)
 COPY package*.json ./
@@ -14,14 +14,14 @@ RUN npm run build
 # ── Stage 2: Production ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-WORKDIR /app
+WORKDIR /app/backend
 
 # Production deps only
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Copy compiled output + config.json (build script copies it to dist/)
-COPY --from=builder /app/dist ./dist
+# Copy compiled output from build stage
+COPY --from=builder /app/backend/dist ./dist
 
 EXPOSE 7860
 
