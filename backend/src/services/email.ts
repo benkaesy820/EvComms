@@ -147,92 +147,177 @@ async function sendEmailInternal(params: EmailParams): Promise<void> {
   let subject: string
   let htmlContent: string
 
+  // ─── Shared email shell ───────────────────────────────────────────────────
+  // Inline-only CSS: required for Gmail, Outlook, and Apple Mail compatibility.
+  // Brand palette: primary #008069 (WhatsApp green), bg #f0f2f5, text #1a1a2e
+  const emailShell = (accentColor: string, iconHtml: string, heading: string, bodyHtml: string, footerHtml = '') => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>${escapeHtml(appName)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f2f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f0f2f5;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <!-- Card -->
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width:560px;">
+
+          <!-- Logo header -->
+          <tr>
+            <td style="background-color:${accentColor};border-radius:12px 12px 0 0;padding:28px 36px;text-align:center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
+                <tr>
+                  <td style="vertical-align:middle;padding-right:10px;">${iconHtml}</td>
+                  <td style="vertical-align:middle;">
+                    <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">${escapeHtml(appName)}</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body card -->
+          <tr>
+            <td style="background-color:#ffffff;border-radius:0 0 12px 12px;padding:36px 40px 32px;border:1px solid #e4e7eb;border-top:none;">
+              <h1 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#111827;line-height:1.3;">${heading}</h1>
+              ${bodyHtml}
+              ${footerHtml ? `<hr style="margin:28px 0;border:none;border-top:1px solid #e4e7eb;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">${footerHtml}</p>` : ''}
+            </td>
+          </tr>
+
+          <!-- Bottom spacer + legal -->
+          <tr>
+            <td style="padding:20px 0 0;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">© ${new Date().getFullYear()} ${escapeHtml(appName)}. All rights reserved.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
+
+  const ctaButton = (href: string, label: string, color = '#008069') =>
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:28px 0;">
+      <tr>
+        <td style="border-radius:8px;background-color:${color};">
+          <a href="${href}" target="_blank" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;letter-spacing:0.1px;">${label}</a>
+        </td>
+      </tr>
+    </table>`
+
+  const bodyText = (text: string) =>
+    `<p style="margin:0 0 14px;font-size:15px;color:#374151;line-height:1.7;">${text}</p>`
+
+  const reasonPill = (reason: string, color: string) =>
+    `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:16px 0;">
+      <tr>
+        <td style="background-color:${color}14;border-left:3px solid ${color};border-radius:0 6px 6px 0;padding:12px 16px;">
+          <p style="margin:0;font-size:14px;color:#374151;line-height:1.6;"><strong style="color:${color};">Reason:</strong> ${escapeHtml(reason)}</p>
+        </td>
+      </tr>
+    </table>`
+
+  // Real app logo — exact paths from LeafLogo.tsx, inlined for email client compatibility
+  const leafIcon = (color = '#ffffff') =>
+    `<svg viewBox="1 1 21 32" width="36" height="36" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-label="EV Leaf Logo">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+      <text x="11.5" y="32" text-anchor="middle" font-size="10" font-weight="900" fill="${color}" stroke="none">EV</text>
+    </svg>`
+
+  // ── 1. Account Approved ───────────────────────────────────────────────────
   switch (params.type) {
     case 'accountApproved':
-      subject = `Welcome to ${appName} - Account Approved`
-      htmlContent = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #1a1a1a;">Your account has been approved!</h2>
-          <p>Hi ${escapeHtml(user.name)},</p>
-          <p>Great news! Your account has been approved and you can now start using ${escapeHtml(appName)}.</p>
-          <p style="margin: 30px 0;">
-            <a href="${appUrl}/login" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Login Now</a>
-          </p>
-          <p>If you have any questions, feel free to reach out to us.</p>
-          <p>Best regards,<br>${escapeHtml(appName)} Team</p>
-        </div>
-      `
+      subject = `Welcome to ${appName} — Your account is approved!`
+      htmlContent = emailShell(
+        '#008069',
+        leafIcon(),
+        `Welcome aboard, ${escapeHtml(user.name)}! 🎉`,
+        bodyText(`Your account has been reviewed and <strong>approved</strong>. You're all set to start using ${escapeHtml(appName)} — log in now to get started.`) +
+        ctaButton(`${appUrl}/login`, 'Log In to Your Account') +
+        bodyText(`If you have any questions, feel free to reach out to our support team. We're happy to help.`),
+        `You're receiving this email because you registered for ${escapeHtml(appName)}.`
+      )
       break
 
+    // ── 2. Account Rejected ───────────────────────────────────────────────
     case 'accountRejected':
-      subject = `${appName} - Account Application Update`
-      htmlContent = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #1a1a1a;">Account Application Update</h2>
-          <p>Hi ${escapeHtml(user.name)},</p>
-          <p>We're unable to approve your account at this time.</p>
-          ${params.reason ? `<p><strong>Reason:</strong> ${escapeHtml(params.reason)}</p>` : ''}
-          <p>If you believe this was a mistake or have questions, please contact us.</p>
-          <p>Best regards,<br>${escapeHtml(appName)} Team</p>
-        </div>
-      `
+      subject = `${appName} — Account Application Update`
+      htmlContent = emailShell(
+        '#dc2626',
+        `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="#ffffff" stroke-width="2"/><path d="M12 8v4M12 16h.01" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/></svg>`,
+        'Application Update',
+        bodyText(`Hi ${escapeHtml(user.name)},`) +
+        bodyText(`Thank you for your interest in ${escapeHtml(appName)}. After reviewing your application, we're unable to approve your account at this time.`) +
+        (params.reason ? reasonPill(params.reason, '#dc2626') : '') +
+        bodyText(`If you believe this decision was made in error or have additional questions, please don't hesitate to contact us — we'll be happy to discuss further.`),
+        `You're receiving this email because you applied for an account on ${escapeHtml(appName)}.`
+      )
       break
 
+    // ── 3. Account Suspended ──────────────────────────────────────────────
     case 'accountSuspended':
-      subject = `${appName} - Account Suspended`
-      htmlContent = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #dc2626;">Account Suspended</h2>
-          <p>Hi ${escapeHtml(user.name)},</p>
-          <p>Your account has been suspended.</p>
-          ${params.reason ? `<p><strong>Reason:</strong> ${escapeHtml(params.reason)}</p>` : ''}
-          <p>If you believe this was a mistake, please contact us.</p>
-          <p>Best regards,<br>${escapeHtml(appName)} Team</p>
-        </div>
-      `
+      subject = `${appName} — Account Suspended`
+      htmlContent = emailShell(
+        '#b45309',
+        `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 9v4M12 17h.01" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/></svg>`,
+        'Your account has been suspended',
+        bodyText(`Hi ${escapeHtml(user.name)},`) +
+        bodyText(`We're writing to let you know that your ${escapeHtml(appName)} account has been temporarily suspended.`) +
+        (params.reason ? reasonPill(params.reason, '#b45309') : '') +
+        bodyText(`If you believe this was a mistake or would like to appeal this decision, please contact our support team and we'll review your case.`),
+        `You're receiving this email because you have an account on ${escapeHtml(appName)}.`
+      )
       break
 
+    // ── 4. New Message ────────────────────────────────────────────────────
     case 'newMessage': {
-      const messageText = params.messageCount === 1
-        ? 'You have 1 new message'
-        : `You have ${params.messageCount} new messages`
-
-      subject = `New message from ${appName}`
-      htmlContent = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #1a1a1a;">${messageText}</h2>
-          <p>Hi ${escapeHtml(user.name)},</p>
-          <p>${messageText} waiting for you.</p>
-          <p style="margin: 30px 0;">
-            <a href="${appUrl}/messages" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Messages</a>
-          </p>
-          <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;">
-          <p style="color: #666; font-size: 12px;">
-            Don't want these emails? 
-            <a href="${appUrl}/settings" style="color: #666;">Update your preferences</a>
-          </p>
-        </div>
-      `
+      const count = params.messageCount ?? 1
+      const messageText = count === 1 ? 'You have 1 new message' : `You have ${count} new messages`
+      subject = `${messageText} on ${appName}`
+      htmlContent = emailShell(
+        '#008069',
+        `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+        messageText,
+        bodyText(`Hi ${escapeHtml(user.name)},`) +
+        bodyText(`You ${count === 1 ? 'have a new message' : `have ${count} unread messages`} waiting for you on ${escapeHtml(appName)}. Click below to view and reply.`) +
+        ctaButton(`${appUrl}/messages`, count === 1 ? 'View Message' : `View ${count} Messages`) +
+        bodyText(`Stay on top of your conversations and respond promptly — we're here for you.`),
+        `Don't want these notifications? <a href="${appUrl}/settings" style="color:#008069;text-decoration:underline;">Update your preferences</a> to manage your email settings.`
+      )
       break
     }
 
+    // ── 5. Password Reset ─────────────────────────────────────────────────
     case 'passwordReset':
       if (!params.resetToken) {
         throw new Error('Reset token missing')
       }
-      subject = `${appName} - Reset Your Password`
-      htmlContent = `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #1a1a1a;">Reset your password</h2>
-          <p>Hi ${escapeHtml(user.name)},</p>
-          <p>We received a request to reset your password. If you made this request, use the button below.</p>
-          <p style="margin: 30px 0;">
-            <a href="${appUrl}/reset-password?token=${params.resetToken}" style="background: #000; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Reset Password</a>
-          </p>
-          <p>If you did not request this, you can safely ignore this email.</p>
-          <p>Best regards,<br>${escapeHtml(appName)} Team</p>
-        </div>
-      `
+      subject = `${appName} — Reset Your Password`
+      htmlContent = emailShell(
+        '#1d4ed8',
+        `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="#ffffff" stroke-width="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/></svg>`,
+        'Reset your password',
+        bodyText(`Hi ${escapeHtml(user.name)},`) +
+        bodyText(`We received a request to reset the password for your ${escapeHtml(appName)} account. If you made this request, click the button below to set a new password.`) +
+        ctaButton(`${appUrl}/reset-password?token=${params.resetToken}`, 'Reset My Password', '#1d4ed8') +
+        `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0;">
+          <tr>
+            <td style="background-color:#f3f4f6;border-radius:8px;padding:14px 16px;">
+              <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">⏱ This link will expire in <strong style="color:#374151;">1 hour</strong>. If you didn't request a password reset, you can safely ignore this email — your account is secure.</p>
+            </td>
+          </tr>
+        </table>`,
+        `For security reasons, never share this link with anyone. ${escapeHtml(appName)} will never ask for your password via email.`
+      )
       break
   }
 
