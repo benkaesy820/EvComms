@@ -70,6 +70,7 @@ export class MediaCleanupService {
 
   private async purgeFailedMedia(): Promise<void> {
     const FAILED_RETAIN_MS = 7 * 24 * 60 * 60 * 1000
+    const CONCURRENCY = 5
     const cutoff = new Date(Date.now() - FAILED_RETAIN_MS)
     const failedMedia = await db.query.media.findMany({
       where: and(eq(media.status, 'FAILED'), lt(media.uploadedAt, cutoff), isNull(media.messageId)),
@@ -78,15 +79,26 @@ export class MediaCleanupService {
     if (failedMedia.length === 0) return
 
     const deletedIds: string[] = []
-    for (const item of failedMedia) {
-      try {
-        const config = getConfig()
-        await retryWithBackoff(() => deleteFromR2(item.r2Key), config.storage.retry.maxAttempts, config.storage.retry.baseDelayMs)
-        deletedIds.push(item.id)
-      } catch (error) {
-        logger.warn({ mediaId: item.id, error }, 'Failed to delete FAILED media from R2')
+
+    for (let i = 0; i < failedMedia.length; i += CONCURRENCY) {
+      const batch = failedMedia.slice(i, i + CONCURRENCY)
+      const results = await Promise.allSettled(
+        batch.map(async (item) => {
+          const config = getConfig()
+          await retryWithBackoff(() => deleteFromR2(item.r2Key), config.storage.retry.maxAttempts, config.storage.retry.baseDelayMs)
+          return item.id
+        })
+      )
+      for (let j = 0; j < results.length; j++) {
+        const r = results[j]!
+        if (r.status === 'fulfilled') {
+          deletedIds.push(r.value)
+        } else {
+          logger.warn({ mediaId: batch[j]!.id, reason: r.reason }, 'Failed to delete FAILED media from R2')
+        }
       }
     }
+
     if (deletedIds.length > 0) {
       await db.delete(media).where(inArray(media.id, deletedIds))
       logger.info({ count: deletedIds.length }, 'Purged stale FAILED media records')
@@ -106,27 +118,40 @@ export class MediaCleanupService {
   private async cleanStaleMedia(staleMedia: { id: string; r2Key: string }[]): Promise<{ cleanedCount: number; failedCount: number }> {
     if (staleMedia.length === 0) return { cleanedCount: 0, failedCount: 0 }
 
+    const CONCURRENCY = 5
     const cleanedIds: string[] = []
     let failedCount = 0
 
-    for (const item of staleMedia) {
-      try {
-        const config = getConfig()
-        await retryWithBackoff(() => deleteFromR2(item.r2Key), config.storage.retry.maxAttempts, config.storage.retry.baseDelayMs)
-        cleanedIds.push(item.id)
-      } catch (error) {
-        failedCount++
-        emitToAdmins('cleanup:media_failed', {
-          mediaId: item.id,
-          r2Key: item.r2Key,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          timestamp: Date.now()
+    // Process in parallel batches — avoids N × R2 latency waterfall
+    for (let i = 0; i < staleMedia.length; i += CONCURRENCY) {
+      const batch = staleMedia.slice(i, i + CONCURRENCY)
+      const results = await Promise.allSettled(
+        batch.map(async (item) => {
+          const config = getConfig()
+          await retryWithBackoff(() => deleteFromR2(item.r2Key), config.storage.retry.maxAttempts, config.storage.retry.baseDelayMs)
+          return item.id
         })
+      )
+
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j]!
+        if (result.status === 'fulfilled') {
+          cleanedIds.push(result.value)
+        } else {
+          failedCount++
+          const item = batch[j]!
+          emitToAdmins('cleanup:media_failed', {
+            mediaId: item.id,
+            r2Key: item.r2Key,
+            error: result.reason instanceof Error ? result.reason.message : 'Unknown error',
+            timestamp: Date.now()
+          })
+        }
       }
     }
 
     if (cleanedIds.length > 0) {
-      // Delete records outright — files are already removed from R2
+      // Bulk delete — all confirmed R2 deletes in one query
       await db.delete(media).where(inArray(media.id, cleanedIds))
     }
 

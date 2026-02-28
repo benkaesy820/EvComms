@@ -105,7 +105,8 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
     }
 
     const target = await db.query.users.findFirst({
-      where: eq(users.id, userId)
+      where: eq(users.id, userId),
+      columns: { id: true, role: true, status: true, rejectionReason: true }
     })
 
     if (!target) {
@@ -226,7 +227,8 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
     }
 
     const target = await db.query.users.findFirst({
-      where: eq(users.id, userId)
+      where: eq(users.id, userId),
+      columns: { id: true, role: true, mediaPermission: true }
     })
 
     if (!target) {
@@ -290,7 +292,8 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
     }
 
     const target = await db.query.users.findFirst({
-      where: eq(users.id, userId)
+      where: eq(users.id, userId),
+      columns: { id: true, role: true, status: true }
     })
 
     if (!target) {

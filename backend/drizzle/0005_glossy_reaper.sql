@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ALTER COLUMN "reply_to_id" TO "reply_to_id" text REFERENCES messages(id) ON DELETE set null ON UPDATE no action;

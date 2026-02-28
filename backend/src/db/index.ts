@@ -141,6 +141,8 @@ async function createDbClient(): Promise<any> {
       url,
       syncUrl,
       authToken,
+      // Native sync interval — lifecycle managed by the client, cleaned up on client.close()
+      syncInterval: EMBEDDED_SYNC_INTERVAL_MS / 1000,
     })
 
     // Perform an initial sync so the local replica has the schema and data
@@ -183,16 +185,8 @@ export async function initDb(): Promise<LibSQLDatabase<typeof schema>> {
   db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
   dbReady = Promise.resolve()
 
-  // Start periodic sync for embedded replica mode
-  if (embeddedReplicaClient && typeof embeddedReplicaClient.sync === 'function') {
-    syncIntervalHandle = setInterval(async () => {
-      try {
-        await embeddedReplicaClient.sync()
-      } catch (err) {
-        logger.warn({ err }, 'Embedded replica periodic sync failed')
-      }
-    }, EMBEDDED_SYNC_INTERVAL_MS)
-    logger.info({ intervalMs: EMBEDDED_SYNC_INTERVAL_MS }, 'Embedded replica periodic sync started')
+  if (embeddedReplicaClient) {
+    logger.info({ intervalMs: EMBEDDED_SYNC_INTERVAL_MS }, 'Embedded replica periodic sync active (native syncInterval)')
   }
 
   return db

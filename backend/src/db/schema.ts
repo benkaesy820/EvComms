@@ -176,10 +176,11 @@ export const messages = sqliteTable('messages', {
   status: text('status', { enum: ['SENT', 'READ'] }).notNull().default('SENT'),
   readAt: integer('read_at', { mode: 'timestamp' }),
 
-  // Reply reference
-  replyToId: text('reply_to_id'),
+  // Reply reference — FK ensures a permanently-deleted parent sets replyToId to NULL (not orphan)
+  replyToId: text('reply_to_id').references((): any => messages.id, { onDelete: 'set null' }),
 
-  // Announcement link (optional — message can reference an announcement)
+  // Announcement link — intentionally NOT a FK: announcement may be deleted but the message
+  // content and its reference ID should remain in history for audit purposes.
   announcementId: text('announcement_id'),
 
   // Soft Delete

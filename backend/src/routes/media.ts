@@ -162,6 +162,7 @@ export async function mediaRoutes(fastify: FastifyInstance) {
             sql`${media.uploadedAt} >= ${startOfDay}`
           )
         )
+        .limit(config.limits.media.perDay + 1)
 
       const currentCount = countResult[0]?.count ?? 0
       if (currentCount >= config.limits.media.perDay) {
@@ -259,6 +260,7 @@ export async function mediaRoutes(fastify: FastifyInstance) {
             sql`${media.uploadedAt} >= ${startOfDay}`
           )
         )
+        .limit(config.limits.media.perDay + 1)
 
       const currentCount = countResult[0]?.count ?? 0
       if (currentCount >= config.limits.media.perDay) {

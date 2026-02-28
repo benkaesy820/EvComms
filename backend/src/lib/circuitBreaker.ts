@@ -14,7 +14,6 @@ export class CircuitBreaker {
   private lastFailureTime = 0
   private state: CircuitState = 'CLOSED'
   private config: CircuitBreakerConfig
-  private transitionLock = false
 
   constructor(config: CircuitBreakerConfig) {
     this.config = config
@@ -22,12 +21,9 @@ export class CircuitBreaker {
 
   async execute<T>(operation: () => Promise<T>): Promise<T> {
     if (this.state === 'OPEN') {
+      // Attempt recovery if the timeout has passed — synchronous check, no lock needed
       if (Date.now() - this.lastFailureTime > this.config.recoveryTimeoutMs) {
-        if (!this.transitionLock) {
-          this.transitionLock = true
-          this.transitionTo('HALF_OPEN')
-          this.transitionLock = false
-        }
+        this.transitionTo('HALF_OPEN')
       }
       if (this.state === 'OPEN') {
         throw new Error(`${this.config.name} circuit breaker is OPEN - service temporarily unavailable`)
@@ -62,11 +58,11 @@ export class CircuitBreaker {
   private transitionTo(newState: CircuitState): void {
     const oldState = this.state
     this.state = newState
-    logger.info({ 
-      name: this.config.name, 
-      oldState, 
-      newState, 
-      failures: this.failures 
+    logger.info({
+      name: this.config.name,
+      oldState,
+      newState,
+      failures: this.failures
     }, `Circuit breaker state changed`)
     this.config.onStateChange?.(newState, this.failures)
   }
