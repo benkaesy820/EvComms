@@ -115,8 +115,7 @@ function wrapDbClientWithResilience(baseClient: Client): Client {
   }) as Client
 }
 
-// Removed appliedBootPragmas since @tursodatabase/sync manages its own underlying SQLite pragmas (WAL/synchronous)
-// and running them concurrently/randomly breaks the client synchronization process.
+
 
 async function createDbClient(): Promise<any> {
   if (client) return client
@@ -140,8 +139,7 @@ async function createDbClient(): Promise<any> {
       syncInterval: 60,
     })
 
-    // Perform an initial sync so the local replica has the schema and data
-    // before any service (e.g. media cleanup) queries it.
+    // Initial sync — pull schema + data from Turso cloud before any queries
     try {
       await rawClient.sync()
       logger.info('Database: initial sync complete')
@@ -149,12 +147,23 @@ async function createDbClient(): Promise<any> {
       logger.warn({ err }, 'Database: initial sync failed — local replica may be stale')
     }
 
+    // Apply safe pragmas — skip WAL/synchronous/mmap (the embedded replica client manages its own)
+    for (const pragma of BOOT_PRAGMAS) {
+      if (LOCAL_ONLY_PRAGMAS.has(pragma)) continue
+      try { await rawClient.execute(pragma) } catch { }
+    }
+    try { await rawClient.execute(BOOT_OPTIMIZE) } catch { }
+
     logger.info('Database: Turso embedded replica mode (syncInterval: 60s)')
   }
   // LOCAL FILE MODE: plain local SQLite (no cloud sync)
   else if (url.startsWith('file:')) {
     rawClient = createClient({ url })
-    try { await rawClient.execute('PRAGMA journal_mode = WAL') } catch { }
+    // Apply all BOOT_PRAGMAS for plain local SQLite
+    for (const pragma of BOOT_PRAGMAS) {
+      try { await rawClient.execute(pragma) } catch { }
+    }
+    try { await rawClient.execute(BOOT_OPTIMIZE) } catch { }
     logger.info({ url: url.substring(0, 20) + '...' }, 'Database: local file mode')
   }
   // REMOTE TURSO: direct cloud HTTP connection
@@ -163,6 +172,8 @@ async function createDbClient(): Promise<any> {
       throw new Error('TURSO_AUTH_TOKEN is required for remote database')
     }
     rawClient = createClient({ url, authToken })
+    // foreign_keys works over HTTP too — critical for cascade correctness
+    try { await rawClient.execute('PRAGMA foreign_keys = ON') } catch { }
     logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode')
   }
 

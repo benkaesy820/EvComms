@@ -23,10 +23,16 @@ RUN npm ci --omit=dev
 # Copy compiled output + config.json (build script copies it to dist/)
 COPY --from=builder /app/dist ./dist
 
+# Writable volume for Turso embedded replica (survives container restarts)
+RUN mkdir -p /app/data
+VOLUME /app/data
+
 EXPOSE 7860
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=7860
+# Default embedded replica path — override via platform env vars if needed
+ENV TURSO_DATABASE_URL=file:/app/data/local.db
 
 CMD ["node", "dist/src/index.js"]
