@@ -223,7 +223,7 @@ export function useSendMessage(conversationId: string | undefined) {
       queryClient.setQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }> }>(
         ['messages', conversationId],
         (old) => {
-          if (!old) {
+          if (!old || !old.pages || old.pages.length === 0) {
             return {
               pages: [{ success: true, messages: [optimisticMessage], hasMore: false }]
             }
