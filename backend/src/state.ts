@@ -11,7 +11,7 @@ interface CachedUser {
 }
 
 interface ConnectedUser {
-  socketId: string
+  socketIds: Set<string>
   userId: string
   connectedAt: number
   lastActivity: number

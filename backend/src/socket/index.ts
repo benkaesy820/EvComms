@@ -423,20 +423,17 @@ function handleConnection(socket: Socket): void {
   const config = getConfig()
 
   const existingConnection = serverState.connectedUsers.get(user.id)
-  if (existingConnection && existingConnection.socketId !== socket.id) {
-    const oldSocket = io?.sockets.sockets.get(existingConnection.socketId)
-    if (oldSocket) {
-      oldSocket.emit('force_logout', { reason: 'Connected from another location' })
-      oldSocket.disconnect(true)
-    }
+  if (existingConnection) {
+    existingConnection.socketIds.add(socket.id)
+    existingConnection.lastActivity = Date.now()
+  } else {
+    serverState.connectedUsers.set(user.id, {
+      socketIds: new Set([socket.id]),
+      userId: user.id,
+      connectedAt: Date.now(),
+      lastActivity: Date.now()
+    })
   }
-
-  serverState.connectedUsers.set(user.id, {
-    socketId: socket.id,
-    userId: user.id,
-    connectedAt: Date.now(),
-    lastActivity: Date.now()
-  })
 
   serverState.userPresence.set(user.id, {
     status: 'online',
@@ -559,12 +556,23 @@ function handleConnection(socket: Socket): void {
 }
 
 function handleDisconnect(socket: Socket, user: SocketUser, reason: string): void {
-  serverState.connectedUsers.delete(user.id)
+  const existingConnection = serverState.connectedUsers.get(user.id)
 
-  serverState.userPresence.set(user.id, {
-    status: 'offline',
-    lastSeen: Date.now()
-  })
+  if (existingConnection) {
+    existingConnection.socketIds.delete(socket.id)
+    if (existingConnection.socketIds.size === 0) {
+      serverState.connectedUsers.delete(user.id)
+      serverState.userPresence.set(user.id, {
+        status: 'offline',
+        lastSeen: Date.now()
+      })
+    }
+  } else {
+    serverState.userPresence.set(user.id, {
+      status: 'offline',
+      lastSeen: Date.now()
+    })
+  }
 
   const conversationId = getUserConversationId(user.id)
   if (conversationId) {
@@ -579,13 +587,16 @@ function handleDisconnect(socket: Socket, user: SocketUser, reason: string): voi
 
   logger.info({ userId: user.id, reason }, 'User disconnected')
 
-  const offlineUserCache = getUserFromCache(user.id)
-  emitToAdmins('user:offline', {
-    userId: user.id,
-    userName: offlineUserCache?.name ?? 'Unknown',
-    status: 'offline',
-    lastSeenAt: Date.now()
-  })
+  // Only broadcast offline if the user truly disconnected from all tabs
+  if (!serverState.connectedUsers.has(user.id)) {
+    const offlineUserCache = getUserFromCache(user.id)
+    emitToAdmins('user:offline', {
+      userId: user.id,
+      userName: offlineUserCache?.name ?? 'Unknown',
+      status: 'offline',
+      lastSeenAt: Date.now()
+    })
+  }
 }
 
 interface MessageContext {
