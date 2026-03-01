@@ -43,6 +43,9 @@ let memoryCsrfToken: string | null = null
 
 function getCsrfToken(): string | null {
   if (memoryCsrfToken) return memoryCsrfToken
+  const lsCsrf = localStorage.getItem('csrfToken')
+  if (lsCsrf) return lsCsrf
+
   const match = document.cookie.match(/(?:^|;\s*)_csrf=([^;]*)/)
     ?? document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
   return match ? decodeURIComponent(match[1]) : null
@@ -57,14 +60,33 @@ async function tryRefreshToken(): Promise<boolean> {
   }
   isRefreshing = true
   try {
+    const rToken = localStorage.getItem('refreshToken')
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: rToken || undefined }),
       credentials: 'include',
     })
-    if (!res.ok) throw new Error('Refresh failed')
+
+    if (!res.ok) {
+      throw new Error('Refresh failed')
+    }
+
+    // Parse to ensure we capture the new tokens into localStorage
+    const data = await res.json()
+    if (data.token) localStorage.setItem('token', data.token)
+    if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken)
+    if (data.csrfToken) {
+      memoryCsrfToken = data.csrfToken
+      localStorage.setItem('csrfToken', data.csrfToken)
+    }
+
     refreshWaiters.forEach((cb) => cb(true))
     return true
   } catch {
+    localStorage.removeItem('token')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('csrfToken')
     refreshWaiters.forEach((cb) => cb(false))
     return false
   } finally {
@@ -84,6 +106,12 @@ async function requestOnce(
     ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers as Record<string, string>),
   }
+
+  const token = localStorage.getItem('token')
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
     const csrf = getCsrfToken()
     if (csrf) headers['x-csrf-token'] = csrf
@@ -121,7 +149,20 @@ async function request<T>(
   if (data && typeof data === 'object') {
     if ('csrfToken' in data && typeof data.csrfToken === 'string') {
       memoryCsrfToken = data.csrfToken
+      localStorage.setItem('csrfToken', data.csrfToken)
     }
+    if ('token' in data && typeof data.token === 'string') {
+      localStorage.setItem('token', data.token)
+    }
+    if ('refreshToken' in data && typeof data.refreshToken === 'string') {
+      localStorage.setItem('refreshToken', data.refreshToken)
+    }
+  }
+
+  if (path === '/auth/logout') {
+    localStorage.removeItem('token')
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('csrfToken')
   }
   return data
 }

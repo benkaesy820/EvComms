@@ -889,12 +889,14 @@ export async function authRoutes(fastify: FastifyInstance) {
   })
 
   fastify.post('/refresh', { preHandler: rateLimiters.api }, async (request, reply) => {
-    // Refresh token must come from the httpOnly cookie only
+    // Allow refresh token from body or cookie to support cross-domain setups
+    const body = request.body as { refreshToken?: string } | undefined
     const cookieToken = request.cookies.refresh_token
-    if (!cookieToken) {
-      return sendError(reply, 400, 'VALIDATION_ERROR', 'Refresh token cookie missing')
+
+    const rawToken = body?.refreshToken || cookieToken
+    if (!rawToken) {
+      return sendError(reply, 400, 'VALIDATION_ERROR', 'Refresh token missing from body and cookies')
     }
-    const rawToken = cookieToken
 
     try {
       const now = new Date()

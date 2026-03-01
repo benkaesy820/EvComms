@@ -82,6 +82,9 @@ export function connectSocket(): AppSocket {
   socket = io(SOCKET_URL, {
     transports: ['websocket', 'polling'],
     withCredentials: true,
+    auth: {
+      token: localStorage.getItem('token') || undefined
+    },
     upgrade: true,
     reconnection: true,
     reconnectionDelay: 1000,
