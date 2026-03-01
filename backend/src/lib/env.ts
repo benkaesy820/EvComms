@@ -11,8 +11,6 @@ const envSchema = z.object({
 
   TURSO_DATABASE_URL: z.string().min(1),
   TURSO_AUTH_TOKEN: z.string().optional(),
-  TURSO_SYNC_URL: z.string().optional(),
-  TURSO_LOCAL_DB_PATH: z.string().optional(),
 
   JWT_SECRET: z.string().min(24),
   JWT_EXPIRY_DAYS: z.coerce.number().int().positive().default(30),
@@ -88,18 +86,10 @@ const envSchema = z.object({
       })
     }
 
-    if (!data.TURSO_AUTH_TOKEN && !data.TURSO_DATABASE_URL?.startsWith('file:')) {
+    if (!data.TURSO_AUTH_TOKEN) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'TURSO_AUTH_TOKEN is required for remote database in production',
-        path: ['TURSO_AUTH_TOKEN']
-      })
-    }
-
-    if (data.TURSO_DATABASE_URL?.startsWith('file:') && data.TURSO_SYNC_URL && !data.TURSO_AUTH_TOKEN) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'TURSO_AUTH_TOKEN is required for embedded replica mode',
+        message: 'TURSO_AUTH_TOKEN is required in production',
         path: ['TURSO_AUTH_TOKEN']
       })
     }
@@ -125,8 +115,6 @@ export const env = {
 
   databaseUrl: parsed.data.TURSO_DATABASE_URL,
   authToken: parsed.data.TURSO_AUTH_TOKEN,
-  tursoSyncUrl: parsed.data.TURSO_SYNC_URL,
-  tursoLocalDbPath: parsed.data.TURSO_LOCAL_DB_PATH,
 
   jwtSecret: parsed.data.JWT_SECRET,
   jwtExpiryDays: parsed.data.JWT_EXPIRY_DAYS,

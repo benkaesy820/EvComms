@@ -35,12 +35,4 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=7860
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CMD path is based on your tsconfig.json inside backend/:
-#
-#   "rootDir": "src"  →  dist/index.js        ← most likely (use this one)
-#   "rootDir": "."    →  dist/src/index.js
-#
-# If the container crashes on start, swap to the other one.
-# ─────────────────────────────────────────────────────────────────────────────
 CMD ["node", "dist/src/index.js"]

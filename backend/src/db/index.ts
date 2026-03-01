@@ -10,47 +10,10 @@ import { emitToAdmins } from '../socket/index.js'
 import * as schema from './schema.js'
 import { sessions, refreshTokens, passwordResetTokens } from './schema.js'
 
-// ============================================================================
-// PRAGMA BOOT SEQUENCE
-// Applied once per process on the raw libsql client before handing it to Drizzle.
-// These are connection-level settings — not schema migrations.
-// ============================================================================
-// Pragmas that require a local file — must be skipped for remote HTTP connections
-const LOCAL_ONLY_PRAGMAS = new Set([
-  'PRAGMA journal_mode = WAL',
-  'PRAGMA synchronous = NORMAL',
-  'PRAGMA mmap_size = 134217728',
-  'PRAGMA busy_timeout = 5000',
-  'PRAGMA cache_size = -32000',
-  'PRAGMA temp_store = MEMORY',
-])
 
-const BOOT_PRAGMAS = [
-  // WAL mode: concurrent readers + single writer (local only)
-  `PRAGMA journal_mode = WAL`,
-  // Biggest write speedup available: skip full fsync after every write (safe with WAL)
-  `PRAGMA synchronous = NORMAL`,
-  // libsql does NOT enable FK enforcement by default — critical for cascade correctness
-  `PRAGMA foreign_keys = ON`,
-  // 32 MB page cache in RAM — hot rows never touch disk
-  `PRAGMA cache_size = -32000`,
-  // 128 MB memory-mapped IO — zero-copy OS-level reads for sequential scans (local only)
-  `PRAGMA mmap_size = 134217728`,
-  // Sorts / group-by spill stays in RAM, never hits disk temp file
-  `PRAGMA temp_store = MEMORY`,
-  // Wait up to 5 s on WAL lock instead of immediate SQLITE_BUSY — prevents retry storms
-  `PRAGMA busy_timeout = 5000`,
-] as const
-
-// Feed ANALYZE stats to the query planner without a full table scan
-const BOOT_OPTIMIZE = `PRAGMA optimize`
 
 let client: Client | null = null
 let db: LibSQLDatabase<typeof schema> | null = null
-let embeddedReplicaClient: any = null
-let syncIntervalHandle: ReturnType<typeof setInterval> | null = null
-
-const EMBEDDED_SYNC_INTERVAL_MS = 60_000
 
 const DEFAULT_DB_TIMEOUT_MS = 8000
 
@@ -119,58 +82,23 @@ function wrapDbClientWithResilience(baseClient: Client): Client {
   }) as Client
 }
 
-// Removed appliedBootPragmas since @tursodatabase/sync manages its own underlying SQLite pragmas (WAL/synchronous)
-// and running them concurrently/randomly breaks the client synchronization process.
 
 async function createDbClient(): Promise<any> {
   if (client) return client
 
   const url = env.databaseUrl
-  const syncUrl = env.tursoSyncUrl
   const authToken = env.authToken
 
   let rawClient: any
 
-  logger.info({ url, syncUrl, hasAuth: !!authToken }, 'Initializing database connection...')
+  logger.info({ url, hasAuth: !!authToken }, 'Initializing database connection...')
 
-  // EMBEDDED REPLICA MODE — @libsql/client handles local file + cloud sync natively.
-  // This is the officially supported way to do embedded replicas with Turso + Drizzle.
-  // The client exposes the full execute/batch/close interface Drizzle requires.
-  if (url.startsWith('file:') && syncUrl && authToken) {
-    rawClient = createClient({
-      url,
-      syncUrl,
-      authToken,
-      // Native sync interval — lifecycle managed by the client, cleaned up on client.close()
-      syncInterval: EMBEDDED_SYNC_INTERVAL_MS / 1000,
-    })
+  if (!authToken && env.isProd) {
+    throw new Error('TURSO_AUTH_TOKEN is required for remote database in production')
+  }
 
-    // Perform an initial sync so the local replica has the schema and data
-    // before any service (e.g. media cleanup) queries it.
-    try {
-      await rawClient.sync()
-      logger.info('Database: initial sync complete')
-    } catch (err) {
-      logger.warn({ err }, 'Database: initial sync failed — local replica may be stale')
-    }
-
-    logger.info('Database: Turso embedded replica mode (@libsql/client)')
-    embeddedReplicaClient = rawClient
-  }
-  // LOCAL FILE MODE: plain local SQLite (no cloud sync)
-  else if (url.startsWith('file:')) {
-    rawClient = createClient({ url })
-    try { await rawClient.execute('PRAGMA journal_mode = WAL') } catch { }
-    logger.info({ url: url.substring(0, 20) + '...' }, 'Database: local file mode')
-  }
-  // REMOTE TURSO: direct cloud HTTP connection
-  else {
-    if (!authToken) {
-      throw new Error('TURSO_AUTH_TOKEN is required for remote database')
-    }
-    rawClient = createClient({ url, authToken })
-    logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode')
-  }
+  rawClient = authToken ? createClient({ url, authToken }) : createClient({ url })
+  logger.info({ url: url.substring(0, 20) + '...' }, 'Database: remote Turso mode')
 
   client = wrapDbClientWithResilience(rawClient)
   return client
@@ -185,10 +113,6 @@ export async function initDb(): Promise<LibSQLDatabase<typeof schema>> {
   db = drizzle(rawClientRef as Client, { schema, logger: env.isDev })
   dbReady = Promise.resolve()
 
-  if (embeddedReplicaClient) {
-    logger.info({ intervalMs: EMBEDDED_SYNC_INTERVAL_MS }, 'Embedded replica periodic sync active (native syncInterval)')
-  }
-
   return db
 }
 
@@ -198,7 +122,7 @@ export function getDb(): LibSQLDatabase<typeof schema> {
 }
 
 // Deferred init — awaited by startServer() via initDb()
-// DO NOT call initDb() at module level; it races with config/PRAGMA setup
+// DO NOT call initDb() at module level; it races with config setup
 export let dbReady: Promise<void> = Promise.resolve()
 
 // Backwards-compatible synchronous accessor (safe after initDb() has resolved)
@@ -224,8 +148,6 @@ export async function checkDbHealth(): Promise<{
   try {
     const start = Date.now()
     await retryWithBackoff(async () => {
-      // In @tursodatabase/sync embedded mode, execute isn't strictly recreating the client,
-      // it's just pinging the existing client if we already have it.
       const dbClient = client || await createDbClient()
       await dbClient.execute('SELECT 1')
     }, 2, 250)
@@ -301,17 +223,10 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
 }
 
 export async function closeDb(): Promise<void> {
-  if (syncIntervalHandle) {
-    clearInterval(syncIntervalHandle)
-    syncIntervalHandle = null
-    logger.info('Embedded replica sync interval cleared')
-  }
-
   if (client) {
     await client.close()
     client = null
     db = null
-    embeddedReplicaClient = null
     logger.info('Database connection closed')
   }
 }

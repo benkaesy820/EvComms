@@ -244,7 +244,7 @@ export async function startServer(): Promise<FastifyInstance> {
 
   initServerState()
 
-  // Ensure DB is up and PRAGMAs are applied before any request is served
+  // Ensure DB is initialized before any request is served
   await initDb()
 
   const fastify = await buildApp()
