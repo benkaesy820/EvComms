@@ -4,9 +4,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   Palette, Globe, HelpCircle, Phone, Share2, FileText,
-  Plus, Trash2, Check, Loader2, ChevronDown, ChevronRight,
+  Plus, Trash2, Check, Loader2, ChevronDown,
   Twitter, Linkedin, Instagram, Facebook, Youtube,
-  Building2, Mail, Eye, ExternalLink,
+  Building2, Eye, ExternalLink,
   Info,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'

@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { parseTimestamp, getInitials, formatFileSize } from '@/lib/utils'
 import {
   Monitor, Smartphone, Globe, Trash2, KeyRound, Bell, LogOut,
-  Shield, Palette, Sliders, Zap, Lock, Check, Loader2, Cloud, Plus, Pencil,
+  Shield, Palette, Sliders, Zap, Lock, Check, Loader2, Cloud, Pencil,
   User, Mail, Phone, Image, FileText, FileImage, RefreshCw, Users2, Info,
 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
@@ -17,7 +17,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { useAuthStore } from '@/stores/authStore'
 import { auth, preferences, appConfig, users, ApiError, type AppConfig } from '@/lib/api'
-import { changePasswordSchema, type ChangePasswordInput, type Subsidiary } from '@/lib/schemas'
+import { changePasswordSchema, type ChangePasswordInput } from '@/lib/schemas'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTriggerMediaCleanup } from '@/hooks/useUsers'
 import { useAppConfig } from '@/hooks/useConfig'

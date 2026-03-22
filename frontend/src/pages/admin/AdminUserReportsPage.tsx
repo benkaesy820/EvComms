@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  FileWarning, Clock, RefreshCw, CheckCircle2, ChevronRight,
+  FileWarning, Clock, RefreshCw, ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

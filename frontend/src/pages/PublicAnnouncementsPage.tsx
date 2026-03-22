@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Megaphone,
   ThumbsUp, ThumbsDown, Clock, ChevronDown, ChevronUp,
-  ArrowLeft, Shield, AlertTriangle, ExternalLink,
+  ArrowLeft, Shield, AlertTriangle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -270,7 +270,7 @@ export function PublicAnnouncementsPage() {
         ) : (
           <div className="space-y-4 pb-8">
             {(items as PublicAnnouncement[]).map((ann) => (
-              <AnnouncementCard key={ann.id} announcement={ann} />
+              <AnnouncementCard key={ann.id} announcement={ann} onView={(id) => navigate(`/announcements/${id}`)} />
             ))}
           </div>
         )}
