@@ -54,6 +54,7 @@ const contactSchema = z.object({
   phone: z.string().max(50),
   showLiveChat: z.boolean(),
 })
+const socialSchema = z.object({
   twitter: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   linkedin: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   instagram: z.string().url('Must be a valid URL').optional().or(z.literal('')),
