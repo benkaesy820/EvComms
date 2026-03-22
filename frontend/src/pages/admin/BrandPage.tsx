@@ -6,16 +6,14 @@ import {
   Palette, Globe, HelpCircle, Phone, Share2, FileText,
   Plus, Trash2, Check, Loader2, ChevronDown, ChevronRight,
   Twitter, Linkedin, Instagram, Facebook, Youtube,
-  Building2, Mail, Clock, MapPin, Eye, ExternalLink,
-  ToggleLeft, Type, Image, Hash, Info, X, GripVertical,
+  Building2, Mail, Eye, ExternalLink,
+  Info,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { useAppConfig } from '@/hooks/useConfig'
 import { appConfig } from '@/lib/api'
@@ -56,12 +54,6 @@ const contactSchema = z.object({
   phone: z.string().max(50),
   showLiveChat: z.boolean(),
 })
-const faqItemSchema = z.object({
-  id: z.string(),
-  question: z.string().min(1, 'Required'),
-  answer: z.string().min(1, 'Required'),
-})
-const socialSchema = z.object({
   twitter: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   linkedin: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   instagram: z.string().url('Must be a valid URL').optional().or(z.literal('')),
@@ -307,7 +299,7 @@ function SubsidiariesSection({ saved, onSave }: { saved: boolean; onSave: () => 
         </div>
       ) : (
         <div className="space-y-3">
-          {subs.map((sub, idx) => {
+          {subs.map((sub) => {
             const isOpen = expanded === sub.id
             const isEmpty = !sub.name.trim()
             return (
