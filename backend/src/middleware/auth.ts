@@ -345,7 +345,7 @@ export function issueAuthCookies(reply: FastifyReply, token: string, refreshToke
 
   // HIGH FIX: Use 'strict' SameSite for maximum CSRF protection
   // 'strict' prevents CSRF attacks but allows normal same-site navigation
-  const sameSiteValue: 'lax' | 'strict' = 'strict'
+  const sameSiteValue: 'none' | 'lax' = isProd ? 'none' : 'lax'
 
   reply.setCookie('token', token, {
     httpOnly: true,
