@@ -1,27 +1,16 @@
-# 🚀 Deployment Guide — EcomReady Backend on Koyeb Free Tier
+# 🚀 Deployment Guide — EvComms
 
-## Stack Overview
-- **Backend**: Fastify + TypeScript → Docker (Node 20 Alpine)  
-- **Database**: Turso (libSQL)  
-- **Storage**: Cloudflare R2  
-- **Email**: Brevo  
-- **Frontend**: Vite + React → Cloudflare Pages  
+## Your URLs
+| Service | URL |
+|---------|-----|
+| **Backend (Koyeb)** | https://your-app.koyeb.app |
+| **Frontend (Cloudflare Pages)** | https://your-app.pages.dev |
+| **Frontend (preview)** | https://08a628cd.your-app.pages.dev |
 
 ---
 
 ## 1. Git Setup
 
-### Repo structure (recommended)
-Keep backend and frontend in the same monorepo:
-```
-evcomms/
-├── backend/     ← your Fastify app
-├── frontend/    ← your Vite/React app
-├── .gitignore   ← root ignore file (provided)
-└── README.md
-```
-
-### Push to GitHub
 ```bash
 git init
 git add .
@@ -31,153 +20,86 @@ git branch -M main
 git push -u origin main
 ```
 
-> ⚠️ Make sure `.env` is in `.gitignore` — never commit secrets!
+> ⚠️ `.env.production` is in `.gitignore` — it will NOT be pushed to GitHub.
+> Keep it safe locally and paste values manually into Koyeb / Cloudflare dashboards.
 
 ---
 
-## 2. Backend → Koyeb Free Tier
+## 2. Backend → Koyeb
 
-### A. Pre-requisites
-- Koyeb account: https://app.koyeb.com  
-- Your Dockerfile is already production-ready (exposes port 7860, has healthcheck)
+### A. Create Service
+1. Koyeb Dashboard → Create Service → GitHub
+2. Select your repo, set Root directory to backend/
+3. Koyeb auto-detects the Dockerfile
+4. Set Port to 7860
+5. Choose Free (nano) instance
 
-### B. Create a new Service on Koyeb
-1. Go to **Koyeb Dashboard → Create Service**
-2. Choose **GitHub** as source → select your repo
-3. Set **Root directory** to `backend/`
-4. Koyeb will auto-detect the `Dockerfile`
-5. Set **Port** to `7860` (matches your Dockerfile `EXPOSE`)
-6. Choose the **Free** instance type (nano)
+### B. Paste these into Koyeb → Environment Variables
 
-### C. Environment Variables (set in Koyeb dashboard)
-Copy these into the **Environment Variables** section:
-
-```
 NODE_ENV=production
 PORT=7860
 HOST=0.0.0.0
-
-# Turso Database
-TURSO_DATABASE_URL=libsql://your-db.turso.io
+TURSO_DATABASE_URL=https://your-db-name.turso.io
 TURSO_AUTH_TOKEN=your-turso-auth-token
-
-# Auth — generate with: openssl rand -base64 48
-JWT_SECRET=your-very-long-random-secret-at-least-32-chars
-JWT_ISSUER=https://innocent-wenda-benkbear-30d64231.koyeb.app
-JWT_AUDIENCE=EcomReady
-
-# Cloudflare R2 Storage
-R2_ACCOUNT_ID=your-account-id
-R2_ACCESS_KEY_ID=your-access-key-id
-R2_SECRET_ACCESS_KEY=your-secret-access-key
-R2_BUCKET_NAME=your-bucket-name
-R2_PUBLIC_URL=https://your-r2-public-url.com
-
-# Brevo Email
-BREVO_API_KEY=xkeysib-your-brevo-api-key
+JWT_SECRET=your-jwt-secret-min-32-chars
+JWT_EXPIRY_MINUTES=15
+JWT_ISSUER=https://your-app.koyeb.app
+JWT_AUDIENCE=EvComms
+APP_NAME=EvComms
+APP_URL=https://your-app.pages.dev
+CORS_ORIGIN=https://your-app.pages.dev,https://08a628cd.your-app.pages.dev
+BREVO_API_KEY=YOUR_BREVO_API_KEY_HERE
 BREVO_SENDER_EMAIL=noreply@yourdomain.com
-BREVO_SENDER_NAME=EcomReady
+BREVO_SENDER_NAME=EvComms
+R2_ACCOUNT_ID=your-r2-account-id
+R2_ACCESS_KEY_ID=your-r2-access-key-id
+R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
+R2_BUCKET_NAME=your-bucket-name
+R2_PUBLIC_URL=https://pub-xxxxxxxxxxxx.r2.dev
+IMAGEKIT_PUBLIC_KEY=your-imagekit-public-key
+IMAGEKIT_PRIVATE_KEY=your-imagekit-private-key
+IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/your-id
 
-# App
-APP_NAME=EcomReady
-APP_URL=https://evcomms.pages.dev
-CORS_ORIGIN=https://evcomms.pages.dev
-```
-
-> 💡 `CORS_ORIGIN` must match your Cloudflare Pages URL exactly — your backend uses this for CORS and cookie `sameSite: none`.
-
-### D. Run DB migration after first deploy
-Koyeb doesn't support run-once jobs on free tier. You have two options:
-
-**Option 1 (Recommended):** Add a startup migration to `src/index.ts`
-See `backend/src/index.ts` modification below.
-
-**Option 2:** Run migration locally pointing at your production Turso DB:
-```bash
-TURSO_DATABASE_URL=libsql://your-db.turso.io \
-TURSO_AUTH_TOKEN=your-token \
-npm run db:migrate
-```
+### C. Run DB migration (first deploy only)
+cd backend
+npm install
+npm run db:migrate   # pointed at production Turso via .env.production
+npm run seed:admin
 
 ---
 
-## 3. Startup Migration (add to backend/src/index.ts)
+## 3. Frontend → Cloudflare Pages
 
-Replace your `main()` function with this to auto-migrate on boot:
+### A. Create Project
+1. Cloudflare Dashboard → Pages → Create a project
+2. Connect GitHub repo
+3. Root directory: frontend/
+4. Build command: npm run build
+5. Build output directory: dist
+6. Node version: 20
 
-```typescript
-import { runMigrations } from './db/index.js'  // adjust import if needed
+### B. Environment Variable (Cloudflare Pages → Settings → Environment Variables)
+VITE_API_URL=https://your-app.koyeb.app
 
-async function main(): Promise<void> {
-  try {
-    // Run migrations on startup (safe — skips already-applied ones)
-    await runMigrations()
-    await startServer()
-    logger.info(`Server running in ${env.nodeEnv} mode on port ${env.port}`)
-  } catch (error) {
-    logger.fatal(error, 'Failed to start server')
-    process.exit(1)
-  }
-}
-```
+### C. SPA Routing
+frontend/public/_redirects is already in your project (/*  /index.html  200)
+Cloudflare Pages picks this up automatically.
 
 ---
 
-## 4. Frontend → Cloudflare Pages
+## 4. Koyeb Free Tier — Keep it awake
 
-### A. Connect to Cloudflare Pages
-1. Go to **Cloudflare Dashboard → Pages → Create a project**
-2. Connect your GitHub repo
-3. Set **Root directory** to `frontend/`
-4. **Build command**: `npm run build`
-5. **Build output directory**: `dist`
-6. **Node version**: `20`
-
-### B. Environment Variables (set in Cloudflare Pages)
-```
-VITE_API_URL=https://innocent-wenda-benkbear-30d64231.koyeb.app
-```
-
-> Your `src/lib/api.ts` already reads `import.meta.env.VITE_API_URL` — this is all you need.
-
-### C. SPA Routing fix
-Create `frontend/public/_redirects` (already handled if you add this file):
-```
-/*    /index.html    200
-```
+Set up UptimeRobot (free) to ping every 4 minutes:
+URL: https://your-app.koyeb.app/health
 
 ---
 
-## 5. Koyeb Free Tier — Important Limits
+## 5. Pre-launch Checklist
 
-| Limit | Free Tier |
-|-------|-----------|
-| Services | 2 |
-| Instance type | Nano (0.1 vCPU, 256MB RAM) |
-| Sleep after inactivity | **Yes — 5 min** |
-| Outbound bandwidth | 100 GB/mo |
-| Custom domains | ✅ Yes |
-
-> ⚠️ **Cold starts**: The free tier sleeps after inactivity. First request after sleep takes ~5-15 seconds. Consider adding a free uptime pinger (e.g. UptimeRobot hitting `/health` every 4 minutes).
-
----
-
-## 6. Healthcheck
-Your `/health` endpoint is already registered. Koyeb will use:
-```
-GET /health  →  200 OK
-```
-Your Dockerfile healthcheck also calls this — you're good.
-
----
-
-## 7. Quick Checklist Before Going Live
-
-- [ ] `.env` is in `.gitignore` ✅  
-- [ ] `dist/` is in `.gitignore` ✅  
-- [ ] `JWT_SECRET` is 32+ random chars (not the example value)  
-- [ ] `CORS_ORIGIN` in Koyeb = exact Cloudflare Pages URL  
-- [ ] `VITE_API_URL` in Cloudflare = exact Koyeb URL  
-- [ ] DB migration run against production Turso  
-- [ ] Admin seeded: `npm run seed:admin` (pointed at prod DB)  
-- [ ] UptimeRobot pinging `/health` every 4 min to avoid cold starts  
+- [ ] Koyeb env vars pasted (all 20 variables)
+- [ ] VITE_API_URL set in Cloudflare Pages
+- [ ] DB migration run against production Turso
+- [ ] Admin seeded (npm run seed:admin)
+- [ ] /health responding on Koyeb
+- [ ] UptimeRobot monitor active
+- [ ] .env.production NOT in git (already in .gitignore)

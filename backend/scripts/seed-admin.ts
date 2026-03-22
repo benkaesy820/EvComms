@@ -16,7 +16,7 @@ if (!url || !authToken) {
 
 // ─── Seed config — change these before running ───────────────────────────────
 const SUPER_ADMIN = {
-  email: 'dawnred820@gmail.com',
+  email: 'admin@example.com',
   password: 'Triphina1323@',
   name: 'Super Admin',
 }
