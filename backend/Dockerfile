@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install deps (including devDeps needed for tsc)
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # Copy source and compile
 COPY . .
@@ -18,7 +18,7 @@ WORKDIR /app
 
 # Production deps only
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copy compiled output + config.json (build script copies it to dist/)
 COPY --from=builder /app/dist ./dist
