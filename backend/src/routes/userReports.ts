@@ -26,7 +26,7 @@ const paginateSchema = z.object({
 
 // Normalize timestamps to unix milliseconds so the frontend always receives numbers,
 // regardless of how Drizzle/libsql deserializes the SQLite integer columns.
-function normalizeReport<T extends { createdAt: Date | number | null; updatedAt?: Date | number | null; user?: { createdAt?: Date | number | null } }>(row: T): T & { createdAt: number } {
+function normalizeReport<T extends { createdAt: Date | number | null; updatedAt?: Date | number | null; user?: Record<string, unknown> }>(row: T): T & { createdAt: number } {
     const toMs = (v: Date | number | null | undefined): number => {
         if (v == null) return Date.now()
         if (v instanceof Date) return v.getTime()

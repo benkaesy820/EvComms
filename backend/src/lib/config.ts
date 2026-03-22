@@ -581,6 +581,7 @@ export interface AppConfig {
         userReportsDefault?: number
         userReportsMax?: number
     }
+    storefront?: StorefrontConfig
     subsidiaries?: SubsidiaryConfig[]
     assignment?: {
         maxConversationsPerAdmin: number
