@@ -582,9 +582,9 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
     const user = result.user
     recordLoginAttempt(request.ip, true)
 
-    // Enforce exactly 1 active device to satisfy the rigid local single session limit
-    // Any pre-existing devices are targeted by forceLogoutSession for deletion via evictOldestSession
-    await evictOldestSession(user.id, 1, request.ip)
+    // Enforce max devices from config
+    const loginConfig = getConfig()
+    await evictOldestSession(user.id, loginConfig.session.maxDevices, request.ip)
 
     const deviceInfo = extractDeviceInfo(request)
     let sessionPriority = calculateSessionPriority(deviceInfo, request.ip)
