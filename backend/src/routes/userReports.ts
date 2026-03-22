@@ -34,7 +34,8 @@ function normalizeReport<T extends { createdAt: Date | number | null; updatedAt?
     }
     const result = { ...row, createdAt: toMs(row.createdAt) }
     if (result.user && result.user.createdAt != null) {
-        result.user = { ...result.user, createdAt: toMs(result.user.createdAt) }
+        const userCreatedAt = result.user.createdAt as Date | number | null
+        result.user = { ...result.user, createdAt: toMs(userCreatedAt) }
     }
     return result
 }
