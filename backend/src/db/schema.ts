@@ -153,7 +153,7 @@ export const conversations = sqliteTable('conversations', {
   archivedBy: text('archived_by').references(() => users.id, { onDelete: 'set null' }),
 
   // This column exists in production database
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
 
   // Optional link to a subsidiary
   subsidiaryId: text('subsidiary_id'),

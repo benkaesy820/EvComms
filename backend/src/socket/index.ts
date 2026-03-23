@@ -267,7 +267,13 @@ export function initSocket(httpServer: HttpServer): Server {
       next()
     } catch (err) {
       const authError = err as AuthError
-      logger.warn({ reason: authError.message }, 'Socket auth failed')
+      // NO_TOKEN is expected pre-login / on reconnect before the client has a token —
+      // log at debug to avoid noisy warn spam; everything else is a genuine auth failure.
+      if (authError.code === 'NO_TOKEN') {
+        logger.debug({ reason: authError.message }, 'Socket auth failed')
+      } else {
+        logger.warn({ reason: authError.message }, 'Socket auth failed')
+      }
       next(new Error(authError.code || 'AUTH_FAILED'))
     }
   })
