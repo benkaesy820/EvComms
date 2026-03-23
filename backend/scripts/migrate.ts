@@ -106,11 +106,13 @@ for (const filename of pending) {
   const filepath = join(MIGRATIONS_DIR, filename)
   const sql = await readFile(filepath, 'utf8')
 
-  // Split on drizzle-kit breakpoint comments or bare semicolons
+  // Split on drizzle-kit breakpoint markers, then clean up
   const statements = sql
-    .split(/(--> statement-breakpoint|;)/)
-    .map(s => s.replace(/--> statement-breakpoint/g, '').trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'))
+    .replace(/--[^\n]*\n/g, '\n')          // strip single-line comments
+    .split(/--> statement-breakpoint/)        // split on breakpoints
+    .flatMap(chunk => chunk.split(';'))       // also split on semicolons
+    .map(s => s.trim())
+    .filter(s => s.length > 0)               // drop empty strings
 
   process.stdout.write(`  ⏳  ${filename} ... `)
 
