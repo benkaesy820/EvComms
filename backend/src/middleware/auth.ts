@@ -208,8 +208,13 @@ export async function authenticateRequest(
     const cachedUser = getUserFromCache(decoded.sub)
     if (cachedUser) {
       if (cachedUser.status !== decoded.status || cachedUser.role !== decoded.role) {
+        // Token claims are stale (e.g. user was just approved — cache says APPROVED,
+        // token still says PENDING). Clear the JWT/CSRF but keep the refresh_token cookie
+        // so the client's automatic 401 -> /auth/refresh flow can obtain a new token
+        // with the correct claims. Wiping refresh_token here would cause a 400 on the
+        // refresh call and leave the user permanently logged out until they re-login.
         logger.warn({ requestId: request.requestId, userId: decoded.sub }, 'Token stale, cache mismatch')
-        clearAuthCookies(reply)
+        clearSessionCookies(reply)
         return
       }
 
@@ -406,6 +411,19 @@ export function validateCsrf(request: FastifyRequest): boolean {
 export function clearAuthCookies(reply: FastifyReply): void {
   reply.clearCookie('token', { path: '/' })
   reply.clearCookie('refresh_token', { path: '/api/auth/refresh' })
+  reply.clearCookie(CSRF_COOKIE, { path: '/' })
+}
+
+/**
+ * Clears only the short-lived session cookies (JWT + CSRF) but intentionally
+ * preserves the refresh_token cookie. Use this when the token is stale due to
+ * a status/role change — the client needs the refresh cookie intact so it can
+ * call /auth/refresh and receive a new token with the updated claims.
+ * clearAuthCookies() (which also wipes refresh_token) is reserved for cases
+ * where the session itself is invalid or revoked.
+ */
+export function clearSessionCookies(reply: FastifyReply): void {
+  reply.clearCookie('token', { path: '/' })
   reply.clearCookie(CSRF_COOKIE, { path: '/' })
 }
 
