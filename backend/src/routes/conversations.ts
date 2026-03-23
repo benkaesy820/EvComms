@@ -1286,7 +1286,7 @@ export async function reactionRoutes(fastify: FastifyInstance) {
         .values({ id: reactionId, messageId, userId: user.id, emoji: body.data.emoji })
         .onConflictDoUpdate({
           target: [messageReactions.messageId, messageReactions.userId],
-          set: { emoji: body.data.emoji, id: reactionId }
+          set: { emoji: body.data.emoji }
         })
     } catch (error) {
       const err = error as { code?: string }

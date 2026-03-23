@@ -423,7 +423,7 @@ export async function adminDMRoutes(fastify: FastifyInstance) {
         .values({ id: reactionId, messageId, userId: user.id, emoji })
         .onConflictDoUpdate({
           target: [directMessageReactions.messageId, directMessageReactions.userId],
-          set: { emoji, id: reactionId }
+          set: { emoji }
         })
 
       // Use name from server state (populated on socket connect) — no extra DB lookup

@@ -340,7 +340,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         .values({ id: reactionId, messageId: id, userId: user.id, emoji })
         .onConflictDoUpdate({
           target: [internalMessageReactions.messageId, internalMessageReactions.userId],
-          set: { emoji, id: reactionId }
+          set: { emoji }
         })
 
       const reaction = { id: reactionId, messageId: id, userId: user.id, emoji, user: { name: userName } }
