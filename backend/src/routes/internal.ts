@@ -336,12 +336,16 @@ export async function internalRoutes(fastify: FastifyInstance) {
       const userName = cachedUser?.name ?? 'Admin'
 
       const reactionId = ulid()
+      // LibSQL does not support ON CONFLICT with table-qualified column targets.
+      // Use delete-then-insert to safely replace any existing reaction.
+      await db.delete(internalMessageReactions).where(
+        and(
+          eq(internalMessageReactions.messageId, id),
+          eq(internalMessageReactions.userId, user.id)
+        )
+      )
       await db.insert(internalMessageReactions)
         .values({ id: reactionId, messageId: id, userId: user.id, emoji })
-        .onConflictDoUpdate({
-          target: [internalMessageReactions.messageId, internalMessageReactions.userId],
-          set: { emoji }
-        })
 
       const reaction = { id: reactionId, messageId: id, userId: user.id, emoji, user: { name: userName } }
       try { emitToAdmins('internal:message:reaction', { type: 'add', reaction }) } catch { /* */ }

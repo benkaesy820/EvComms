@@ -417,14 +417,17 @@ export async function adminDMRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // Upsert: unique constraint (messageId, userId) — replaces emoji atomically
+      // LibSQL does not support ON CONFLICT with table-qualified column targets.
+      // Use delete-then-insert to safely replace any existing reaction.
       const reactionId = ulid()
+      await db.delete(directMessageReactions).where(
+        and(
+          eq(directMessageReactions.messageId, messageId),
+          eq(directMessageReactions.userId, user.id)
+        )
+      )
       await db.insert(directMessageReactions)
         .values({ id: reactionId, messageId, userId: user.id, emoji })
-        .onConflictDoUpdate({
-          target: [directMessageReactions.messageId, directMessageReactions.userId],
-          set: { emoji }
-        })
 
       // Use name from server state (populated on socket connect) — no extra DB lookup
       const userName = serverState.userNames.get(user.id) ?? 'Unknown'

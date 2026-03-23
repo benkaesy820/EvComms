@@ -1281,18 +1281,17 @@ export async function reactionRoutes(fastify: FastifyInstance) {
     const reactionId = ulid()
 
     try {
-      // Single upsert: ON CONFLICT (messageId, userId) replaces the emoji
+      // LibSQL does not support ON CONFLICT with table-qualified column targets.
+      // Use delete-then-insert to safely replace any existing reaction.
+      await db.delete(messageReactions).where(
+        and(
+          eq(messageReactions.messageId, messageId),
+          eq(messageReactions.userId, user.id)
+        )
+      )
       await db.insert(messageReactions)
         .values({ id: reactionId, messageId, userId: user.id, emoji: body.data.emoji })
-        .onConflictDoUpdate({
-          target: [messageReactions.messageId, messageReactions.userId],
-          set: { emoji: body.data.emoji }
-        })
     } catch (error) {
-      const err = error as { code?: string }
-      if (err.code === 'SQLITE_CONSTRAINT') {
-        return sendOk(reply, { success: true, alreadyReacted: true })
-      }
       logger.error({ userId: user.id, messageId, error }, 'Reaction add failed')
       return sendError(reply, 500, 'INTERNAL_ERROR', 'Failed to add reaction')
     }
