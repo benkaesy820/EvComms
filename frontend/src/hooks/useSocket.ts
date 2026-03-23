@@ -305,9 +305,9 @@ export function useSocketConnection() {
         toast.error('Your account has been suspended.')
       } else if (data.status === 'APPROVED') {
         toast.success('Your account has been approved!')
+        // Refresh the JWT token so the new status is reflected in subsequent requests
+        useAuthStore.getState().refreshUser().catch(() => {})
         // Registration reports are converted to userReports on approval.
-        // Invalidate so the Reports page shows them immediately whether or
-        // not it is currently mounted (user_report:new handles the mounted case).
         queryClient.invalidateQueries({ queryKey: ['user-reports'] })
       }
     })

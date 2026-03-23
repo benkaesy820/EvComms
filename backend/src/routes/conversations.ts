@@ -49,7 +49,12 @@ interface DbError {
 /** Checks if error is a database constraint error */
 function isDbConstraintError(error: unknown): boolean {
   const err = error as DbError
-  return err?.code === 'SQLITE_CONSTRAINT' || (err?.message?.includes('UNIQUE constraint') ?? false)
+  return (
+    err?.code === 'SQLITE_CONSTRAINT' ||
+    (err as any)?.cause?.code === 'SQLITE_CONSTRAINT' ||
+    (err?.message?.includes('UNIQUE constraint') ?? false) ||
+    (err?.message?.includes('SQLITE_CONSTRAINT') ?? false)
+  )
 }
 
 export async function conversationRoutes(fastify: FastifyInstance) {

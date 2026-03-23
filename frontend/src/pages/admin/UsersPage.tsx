@@ -256,7 +256,7 @@ function UserCard({
       </div>
 
       {isPending && (
-        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-dashed">
+        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-dashed" onClick={e => e.stopPropagation()}>
           <Button
             size="sm"
             className="flex-1 h-8 rounded-lg text-xs gap-1.5"

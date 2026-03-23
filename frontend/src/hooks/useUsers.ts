@@ -127,12 +127,14 @@ export function useUpdateUserStatus() {
           }
         },
       )
-      // Also refresh the individual user detail if it's cached
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users', variables.userId] })
+      // Show success toast first, then invalidate quietly
       toast.success('User status updated')
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users', variables.userId] }).catch(() => {})
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }).catch(() => {})
     },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to update status')
+    onError: () => {
+      // Only fires if the PATCH itself failed
+      toast.error('Failed to update status')
     },
   })
 }
