@@ -257,6 +257,9 @@ export function initSocket(httpServer: HttpServer): Server {
   const redisClient = getRedis()
   if (redisClient) {
     const subClient = redisClient.duplicate()
+    subClient.on('error', (err) => {
+      logger.error({ err: err.message }, 'Redis subClient error')
+    })
     io.adapter(createAdapter(redisClient, subClient))
     logger.info('Socket.IO successfully bridged to Upstash Redis Adapter')
 
