@@ -5,6 +5,7 @@ import { connectSocket, disconnectSocket, getSocket } from '@/lib/socket'
 import type { Message } from '@/lib/schemas'
 import { auth as authApi } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
+import { audio } from '@/lib/audio'
 
 export function useSocketConnection() {
   const user = useAuthStore((s) => s.user)
@@ -70,16 +71,19 @@ export function useSocketConnection() {
     })
 
     socket.on('auth_error', () => {
+      audio.playError()
       toast.error('Session expired. Please login again.')
       resetRef.current()
     })
 
     socket.on('session:revoked', (data) => {
+      audio.playError()
       toast.error(data.reason || 'Session has been revoked')
       resetRef.current()
     })
 
     socket.on('force_logout', (data) => {
+      audio.playError()
       toast.error(data.reason || 'You have been logged out')
       resetRef.current()
     })
@@ -87,6 +91,46 @@ export function useSocketConnection() {
     socket.on('message:new', (data) => {
       const msg = data.message
       const currentUser = useAuthStore.getState().user
+
+      // Sound and intelligent Notification logic
+      if (currentUser && msg.senderId !== currentUser.id) {
+        const isUserOnChatPage = currentUser.role === 'USER' && window.location.pathname.includes('/chat')
+        const isAdminOnChatPage = currentUser.role !== 'USER' && window.location.pathname === '/admin'
+        const isOnChatPage = isUserOnChatPage || isAdminOnChatPage
+
+        const isFocusingThisChat = document.hasFocus() && isOnChatPage && (
+          currentUser.role === 'USER' ||
+          localStorage.getItem('admin-selected-conversation') === msg.conversationId
+        )
+
+        if (isFocusingThisChat) {
+          // Soft interaction sound - actively looking at this exact thread
+          audio.playPop()
+        } else if (isOnChatPage) {
+          // On the chat page but looking elsewhere (or unfocused). No toast to prevent clutter,
+          // because the sidebar will naturally show the new unread badge. Just play the sound.
+          audio.playDing()
+        } else {
+          // Completely off the chat page (e.g., Settings, Users list)
+          // Background/unfocused sound + clickable Toast
+          audio.playDing()
+          toast(msg.sender?.name || 'New Message', {
+            description: msg.content ? (msg.content.length > 50 ? msg.content.slice(0, 50) + '...' : msg.content) : 'Sent an attachment',
+            action: {
+              label: 'View',
+              onClick: () => {
+                if (currentUser.role === 'USER') {
+                  window.location.href = '/home/chat'
+                } else {
+                  localStorage.setItem('admin-selected-conversation', msg.conversationId)
+                  window.location.href = '/admin'
+                }
+              }
+            }
+          })
+        }
+      }
+
       if (currentUser?.role === 'USER' && msg.senderId !== currentUser.id) {
         queryClient.setQueryData<{ success: boolean; conversation: { unreadCount: number; lastMessageAt: number | null;[key: string]: unknown } | null }>(['conversation'],
           (old) => {
@@ -114,6 +158,9 @@ export function useSocketConnection() {
     })
 
     socket.on('message:sent', (data) => {
+      // Soft outgoing confirmation sound
+      audio.playPop()
+
       const convId = data.message.conversationId
       const tempId = data.tempId
 
@@ -315,13 +362,16 @@ export function useSocketConnection() {
     })
 
     socket.on('user:status_changed', (data) => {
-      const u = useAuthStore.getState().user
-      if (u) {
-        setUserRef.current({ ...u, status: data.status })
-      }
+      useAuthStore.setState((state) => {
+        if (!state.user) return state
+        return { user: { ...state.user, status: data.status } }
+      })
+
       if (data.status === 'SUSPENDED') {
+        audio.playError()
         toast.error('Your account has been suspended.')
       } else if (data.status === 'APPROVED') {
+        audio.playSuccess()
         toast.success('Your account has been approved!')
         // Registration reports are converted to userReports on approval.
         // Invalidate so the Reports page shows them immediately whether or
@@ -331,6 +381,7 @@ export function useSocketConnection() {
     })
 
     socket.on('user_report:new', () => {
+      audio.playDing()
       // Fire toast immediately regardless of whether UserReportsPage is mounted
       toast.info('A report has been created from your registration.')
       queryClient.invalidateQueries({ queryKey: ['user-reports'] })
@@ -355,6 +406,7 @@ export function useSocketConnection() {
     })
 
     socket.on('admin:user_registered', () => {
+      audio.playDing()
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
       toast.info('New user registered!')
@@ -380,6 +432,7 @@ export function useSocketConnection() {
         queryClient.invalidateQueries({ queryKey: ['announcements'] })
       }
       if (data.announcement?.title) {
+        audio.playAnnouncement()
         toast.info(`📢 ${data.announcement.title}`)
       }
     })

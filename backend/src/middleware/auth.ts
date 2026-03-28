@@ -209,7 +209,8 @@ export async function authenticateRequest(
     if (cachedUser) {
       if (cachedUser.status !== decoded.status || cachedUser.role !== decoded.role) {
         logger.warn({ requestId: request.requestId, userId: decoded.sub }, 'Token stale, cache mismatch')
-        clearAuthCookies(reply)
+        // DO NOT clearAuthCookies here! The frontend needs the HTTP-only refresh_token cookie
+        // to automatically negotiate a new access token with the updated role/status.
         return
       }
 
@@ -257,12 +258,16 @@ export async function authenticateRequest(
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
       logger.debug({ requestId: request.requestId }, 'Token expired')
+      // DO NOT clear cookies! The frontend relies on the HTTP-only refresh_token
+      // cookie remaining intact in the browser to acquire a new access token.
     } else if (err instanceof jwt.JsonWebTokenError) {
       logger.warn({ requestId: request.requestId, error: err.message }, 'Invalid token')
+      // Delete cookies ONLY when the token is structurally malformed or tampered with
+      clearAuthCookies(reply)
     } else {
       logger.error({ requestId: request.requestId, error: err }, 'Auth error')
+      // Do not clear cookies on internal/system signature errors (e.g. transient key faults)
     }
-    clearAuthCookies(reply)
   }
 }
 
