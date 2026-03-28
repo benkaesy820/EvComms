@@ -1,0 +1,32 @@
+# Dependency directories
+node_modules/
+
+# Production build outputs
+dist/
+build/
+
+# Environment configurations (NEVER COMMIT)
+.env
+.env.local
+.env.development
+.env.production
+
+# Local Databases (Since using Turso in production)
+*.sqlite
+*.sqlite-journal
+*.db
+backend/local.db
+backend/dev.db
+
+# Uploads & User generated content
+backend/uploads/
+backend/tmp/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# System Files
+.DS_Store
+Thumbs.db

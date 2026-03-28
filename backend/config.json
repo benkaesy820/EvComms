@@ -1,0 +1,356 @@
+{
+    "brand": {
+        "siteName": "Ev Business",
+        "tagline": "",
+        "company": "Ev Network",
+        "supportEmail": "ev@gmail.com",
+        "logoUrl": "",
+        "primaryColor": "#000000",
+        "statResponseTime": "< 2 hrs",
+        "statUptime": "99.9%",
+        "statAvailability": "24/7"
+    },
+    "storefront": {
+        "landing": {
+            "heroHeadline": "Support that actually feels human.",
+            "heroSubheadline": "Get a direct line to your support team — no tickets, no queues. Just a conversation.",
+            "ctaPrimary": "Get Started Free",
+            "ctaSecondary": "Sign In",
+            "showHowItWorks": true,
+            "showFeatures": true,
+            "showStats": true
+        },
+        "contact": {
+            "responseTime": "Typically within 1–24 hours",
+            "officeHours": "Monday – Friday, 9 AM – 6 PM",
+            "address": "",
+            "phone": "",
+            "showLiveChat": true
+        },
+        "faq": [
+            {
+                "id": "faq_1",
+                "question": "How do I get access to the platform?",
+                "answer": "Click \"Get Started Free\" on the homepage and register with your email address. Your account will be reviewed and approved by our team — this typically takes a few hours. You'll receive an email confirmation once you're approved."
+            },
+            {
+                "id": "faq_2",
+                "question": "How does the support chat work?",
+                "answer": "Once your account is approved, you'll have a dedicated conversation with our support team. You can send text messages, share images, documents, and videos. Your messages are delivered in real-time and your assigned agent will respond as quickly as possible."
+            },
+            {
+                "id": "faq_3",
+                "question": "Can I upload files and images in my messages?",
+                "answer": "Yes — media uploads are available to users who have been granted upload permission by a support agent. Supported formats include JPEG, PNG, GIF, MP4, PDF, Word, and Excel files."
+            },
+            {
+                "id": "faq_4",
+                "question": "What happens if my conversation is closed?",
+                "answer": "When a support agent closes a conversation, you'll see a banner in the chat with a note from the agent. You can reopen the conversation at any time by clicking \"Reopen conversation\" — your full message history is always preserved."
+            },
+            {
+                "id": "faq_5",
+                "question": "How do I reset my password?",
+                "answer": "Go to the login page and click \"Forgot Password\". Enter your registered email address and follow the instructions in the email you receive. Password reset links expire after 30 minutes."
+            },
+            {
+                "id": "faq_6",
+                "question": "Is my data secure?",
+                "answer": "Yes. All data is transmitted over HTTPS with encrypted connections. Sessions are managed with httpOnly cookies, and we implement CSRF protection, rate limiting, and role-based access controls."
+            },
+            {
+                "id": "faq_7",
+                "question": "Can I use the platform on my phone?",
+                "answer": "Absolutely. The platform is fully responsive and designed for mobile use. It works on any modern browser on iOS and Android without needing to install an app."
+            },
+            {
+                "id": "faq_8",
+                "question": "How do I report a problem with the platform?",
+                "answer": "Use the \"User Reports\" section in your account to submit a bug report or platform issue. For urgent matters, send a message directly in your support chat."
+            }
+        ],
+        "social": {
+            "twitter": "",
+            "linkedin": "",
+            "instagram": "",
+            "facebook": "",
+            "youtube": ""
+        },
+        "legal": {
+            "termsLastUpdated": "2024-01-01",
+            "privacyLastUpdated": "2024-01-01",
+            "companyLegalName": "",
+            "registrationNumber": "",
+            "vatNumber": ""
+        }
+    },
+    "limits": {
+        "message": {
+            "textMaxLength": 5000,
+            "teamTextMaxLength": 5000,
+            "perMinute": 20,
+            "perHour": 200
+        },
+        "media": {
+            "maxSizeImage": 5242880,
+            "maxSizeDocument": 10485760,
+            "perDay": 50
+        },
+        "upload": {
+            "presignedUrlTTL": 300,
+            "confirmTimeout": 600,
+            "maxAgeMs": 1800000
+        },
+        "announcement": {
+            "maxTitleLength": 200,
+            "maxContentLength": 10000,
+            "maxPollOptions": 10,
+            "maxEmojiLength": 10,
+            "commentMaxLength": 1000
+        },
+        "userReport": {
+            "maxDescriptionLength": 5000,
+            "maxSubjectLength": 200,
+            "maxPerHour": 10
+        },
+        "dm": {
+            "maxContentLength": 100000
+        },
+        "conversation": {
+            "contentMaxLength": 100000
+        }
+    },
+    "rateLimit": {
+        "login": {
+            "maxAttempts": 10,
+            "windowMinutes": 15,
+            "lockoutMinutes": 30
+        },
+        "passwordReset": {
+            "maxAttempts": 5,
+            "windowMinutes": 15
+        },
+        "passwordChange": {
+            "maxAttempts": 5,
+            "windowMinutes": 60
+        },
+        "registration": {
+          "maxAttempts": 5,
+          "windowHours": 1
+        },
+        "api": {
+            "requestsPerMinute": 60
+        },
+        "stream": {
+            "maxRequests": 30,
+            "windowMs": 60000,
+            "maxEntries": 40000,
+            "maxSizeBytes": 2097152
+        },
+        "announcement": {
+            "votePerMinute": 10,
+            "publicRequestsPerMinute": 60
+        },
+        "adminPasswordReset": {
+            "maxAttempts": 5,
+            "windowHours": 1
+        },
+        "store": {
+            "maxEntries": 20000,
+            "maxSizeBytes": 1048576,
+            "loginLockoutMaxEntries": 40000,
+            "loginLockoutMaxSizeBytes": 2097152
+        }
+    },
+    "session": {
+        "maxDevices": 5,
+        "passwordResetTokenMinutes": 30,
+        "refreshTokenDays": 90,
+        "accessTokenDays": 30,
+        "validationCacheTTLSeconds": 10
+    },
+    "email": {
+        "notification": {
+            "debounceSeconds": 120,
+            "maxDelaySeconds": 300,
+            "minOfflineSeconds": 300,
+            "maxRetries": 3,
+            "retryBackoffMs": 1000
+        },
+        "queue": {
+            "maxSize": 1000,
+            "drainTimeoutMs": 5000,
+            "sendTimeoutMs": 8000,
+            "defaultMaxQueueSize": 1000
+        },
+        "templates": {
+            "resetTokenExpiryMinutes": 30
+        }
+    },
+    "storage": {
+        "timeoutMs": 8000,
+        "circuitBreaker": {
+            "failureThreshold": 5,
+            "recoveryTimeoutMs": 30000
+        },
+        "retry": {
+            "maxAttempts": 3,
+            "baseDelayMs": 1000
+        },
+        "imagekitPublicKey": "",
+        "imagekitMaxExpireSeconds": 1800,
+        "cleanup": {
+            "failedRetainDays": 7
+        }
+    },
+    "socket": {
+        "authWindowMs": 8000,
+        "authMaxAttempts": 10,
+        "pingTimeoutMs": 60000,
+        "pingIntervalMs": 25000,
+        "maxTimeoutMs": 300000,
+        "maxConnectionsPerIp": 10,
+        "connectionWindowMs": 60000,
+        "rateLimiter": {
+            "maxEntries": 10000
+        },
+        "payload": {
+            "maxSizeBytes": 5242880
+        }
+    },
+    "presence": {
+        "typingIndicatorTTL": 5000,
+        "awayThresholdMs": 300000,
+        "offlineThresholdMs": 900000,
+        "cleanupIntervalMs": 60000,
+        "sessionDbCleanupIntervalMs": 600000,
+        "socketRateCleanupIntervalMs": 60000,
+        "typingCleanupThresholdMs": 10000,
+        "presenceCleanupThresholdMinutes": 5,
+        "uploadCleanupThresholdHours": 1
+    },
+    "allowedMimeTypes": {
+        "image": [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif"
+        ],
+
+        "document": [
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ]
+    },
+    "features": {
+        "userRegistration": true,
+        "mediaUpload": true,
+        "messageDelete": true,
+        "messageDeleteTimeLimitSeconds": 300
+    },
+    "server": {
+        "maxBodySize": 104857600,
+        "requestTimeoutMs": 8000,
+        "shutdownTimeoutMs": 10000,
+        "statsLogIntervalMs": 60000,
+        "hstsMaxAgeSeconds": 31536000,
+        "jsonBodyLimit": 1048576,
+        "maxParamLength": 100
+    },
+    "cache": {
+        "maxUserCacheSize": 10000,
+        "maxTypingIndicators": 1000,
+        "maxActiveUploads": 500,
+        "maxSocketRateLimiters": 10000,
+        "maxEmailQueueSize": 1000,
+        "maxRateLimitEntries": 10000,
+        "rateLimitCleanupIntervalMs": 60000,
+        "health": {
+            "ttlMs": 5000
+        },
+        "stats": {
+            "ttlMs": 30000
+        },
+        "memory": {
+            "totalBudgetMB": 200,
+            "userCacheMax": 400000,
+            "userCacheMaxSizeMB": 80,
+            "sessionCacheMax": 400000,
+            "sessionCacheMaxSizeMB": 40,
+            "connectedUsersMax": 50000,
+            "connectedUsersMaxSizeMB": 20,
+            "userPresenceMax": 100000,
+            "userPresenceMaxSizeMB": 10,
+            "typingIndicatorsMax": 50000,
+            "typingIndicatorsMaxSizeMB": 5,
+            "emailPreferencesMax": 50000,
+            "emailPreferencesMaxSizeMB": 5,
+            "pendingEmailsMax": 50000,
+            "pendingEmailsMaxSizeMB": 10,
+            "userNamesMax": 50000,
+            "userNamesMaxSizeMB": 5,
+            "activeUploadsMax": 50000,
+            "activeUploadsMaxSizeMB": 10,
+            "conversationOwnersMax": 100000,
+            "conversationOwnersMaxSizeMB": 20,
+            "userToConversationMax": 100000,
+            "userToConversationMaxSizeMB": 10,
+            "userSessionKeysMax": 50000,
+            "userSessionKeysMaxSizeMB": 10
+        }
+    },
+    "db": {
+        "defaultTimeoutMs": 8000,
+        "cleanupTransactionTimeoutMs": 30000,
+        "maxLimit": 100,
+        "defaultLimit": 50,
+        "listLimit": 500
+    },
+    "subsidiaries": [
+        {
+            "id": "sub_1772421728667",
+            "name": "Ev",
+            "description": "helloo brossddsddsd",
+            "url": "https://ev.com",
+            "industry": "rust",
+            "founded": "1900"
+        }
+    ],
+    "assignment": {
+        "maxConversationsPerAdmin": 25,
+        "idleThresholdHours": 4,
+        "preferOnlineAdmins": true,
+        "superAdminThreshold": 0.8
+    },
+    "security": {
+        "csrf": {
+            "tokenLength": 32
+        },
+        "password": {
+            "argon2MemoryKib": 65536,
+            "argon2Iterations": 3,
+            "argon2Parallelism": 4
+        }
+    },
+    "pagination": {
+        "announcementsDefault": 20,
+        "announcementsMax": 50,
+        "conversationsDefault": 50,
+        "conversationsMax": 100,
+        "messagesDefault": 50,
+        "messagesMax": 100,
+        "usersDefault": 50,
+        "usersMax": 100,
+        "adminsDefault": 50,
+        "adminsMax": 100,
+        "internalMessagesDefault": 50,
+        "internalMessagesMax": 100,
+        "dmMessagesDefault": 50,
+        "dmMessagesMax": 100,
+        "auditLogsDefault": 50,
+        "auditLogsMax": 100,
+        "userReportsDefault": 20,
+        "userReportsMax": 50
+    }
+}
