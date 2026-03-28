@@ -200,14 +200,19 @@ async function createLoginSession(
   return { sessionId, expiresAt, emailHash }
 }
 
-// Phone validation: international format with optional +, country code, and 7-15 digits
-const phoneRegex = /^\+?[1-9]\d{0,3}[\s\-]?\(?\d{1,4}\)?[\s\-]?\d{1,4}[\s\-]?\d{1,9}$/
-
+// Phone validation: smart parsing for Ghanaian numbers converting "0..." to "233..."
 const registerSchema = z.object({
   email: z.string().email().max(255),
   password: passwordSchema,
   name: z.string().min(2).max(100).transform(s => sanitizeName(s)),
-  phone: z.string().max(20).regex(phoneRegex, 'Invalid phone number format').optional().or(z.literal('')),
+  phone: z.string().min(1, 'Phone number is required').transform(str => {
+    let cleaned = str.replace(/[\s\-()]/g, '')
+    if (cleaned.startsWith('+233')) cleaned = cleaned.substring(1)
+    if (cleaned.startsWith('0')) cleaned = '233' + cleaned.substring(1)
+    return cleaned
+  }).refine(str => /^233[0-9]{9}$/.test(str), {
+    message: 'Invalid Ghanaian phone number. Use format 05... or 233...'
+  }),
   // Optional registration report (JSON mode - no media)
   reportSubject: z.string().min(1).max(200).optional(),
   reportDescription: z.string().min(1).max(2000).optional(),

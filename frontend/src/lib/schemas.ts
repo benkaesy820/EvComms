@@ -18,7 +18,14 @@ export const registerSchema = z.object({
   email: z.string().email('Invalid email address').max(255),
   password: passwordSchema,
   name: z.string().min(2, 'At least 2 characters').max(100),
-  phone: z.string().max(20).optional(),
+  phone: z.string().min(1, 'Phone number is required').transform(str => {
+    let cleaned = str.replace(/[\s\-()]/g, '')
+    if (cleaned.startsWith('+233')) cleaned = cleaned.substring(1)
+    if (cleaned.startsWith('0')) cleaned = '233' + cleaned.substring(1)
+    return cleaned
+  }).refine(str => /^233[0-9]{9}$/.test(str), {
+    message: 'Must be a valid Ghanaian number (e.g. 05...)'
+  }),
   reportSubject: z.string().min(1, 'Subject is required').max(200).optional(),
   reportDescription: z.string().min(1, 'Description is required').max(2000).optional(),
 }).refine(

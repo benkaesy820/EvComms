@@ -265,7 +265,7 @@ export function RegisterPage() {
 
           <div className="space-y-1.5">
             <Label htmlFor="phone" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Phone <span className="font-normal normal-case">(optional)</span>
+              Phone
             </Label>
             <Input
               id="phone"
