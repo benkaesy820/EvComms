@@ -11,7 +11,7 @@ interface AuthState {
   isHydrated: boolean
 
   login: (email: string, password: string) => Promise<void>
-  register: (data: { email: string; password: string; name: string; phone?: string; reportSubject?: string; reportDescription?: string; reportMediaId?: string }) => Promise<{ success: boolean; message: string; user: User }>
+  register: (data: { email: string; password: string; name: string; phone: string; reportSubject?: string; reportDescription?: string; reportMediaId?: string }) => Promise<{ success: boolean; message: string; user: User }>
   logout: () => Promise<void>
   setUser: (user: User) => void
   setLoggedIn: (loggedIn: boolean) => void
