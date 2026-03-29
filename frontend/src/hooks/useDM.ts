@@ -6,6 +6,7 @@ import { getSocket } from '@/lib/socket'
 import { toast } from '@/components/ui/sonner'
 import type { DirectMessage } from '@/lib/schemas'
 import { useAuthStore } from '@/stores/authStore'
+import { audio } from '@/lib/audio'
 
 const KEY = (adminId: string) => ['dm', adminId]
 export const CONVOS_KEY = ['dm', 'conversations']
@@ -28,6 +29,33 @@ export function useDMConversations() {
       if (!currentUserId) return
       const { message } = data
       const partnerId = message.senderId === currentUserId ? message.recipientId : message.senderId
+      const isInbound = message.senderId !== currentUserId
+
+      // Sound: only play for inbound messages
+      if (isInbound) {
+        // Check if the user is actively viewing this exact DM thread
+        const isOnDMPage = window.location.pathname.includes('/admin/dm')
+        const urlPartnerId = window.location.pathname.split('/').pop()
+        const isViewingThisThread = document.hasFocus() && isOnDMPage && urlPartnerId === partnerId
+
+        if (isViewingThisThread) {
+          audio.playPop()
+        } else {
+          audio.playDing()
+          const senderName = (message.sender as { name?: string })?.name ?? 'Direct Message'
+          const preview = message.content
+            ? (message.content.length > 60 ? message.content.slice(0, 60) + '\u2026' : message.content)
+            : (message.type === 'IMAGE' ? '\ud83d\udcf7 Image' : '\ud83d\udcce File')
+          toast(senderName, {
+            description: preview,
+            action: {
+              label: 'View',
+              onClick: () => { window.location.href = `/admin/dm/${partnerId}` }
+            }
+          })
+        }
+      }
+
       const lastMessage = {
         id: message.id,
         content: message.content,
@@ -35,7 +63,6 @@ export function useDMConversations() {
         senderId: message.senderId,
         createdAt: typeof message.createdAt === 'number' ? message.createdAt : new Date(message.createdAt).getTime(),
       }
-      const isInbound = message.senderId !== currentUserId
       queryClient.setQueryData<{ success: boolean; conversations: DMConversation[] }>(
         CONVOS_KEY,
         (old) => {

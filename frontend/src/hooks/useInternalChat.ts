@@ -5,6 +5,7 @@ import { getSocket } from '@/lib/socket'
 import type { InternalMessage } from '@/lib/schemas'
 import { toast } from '@/components/ui/sonner'
 import { useAuthStore } from '@/stores/authStore'
+import { audio } from '@/lib/audio'
 
 const KEY = ['internal-messages'] as const
 export const INTERNAL_UNREAD_KEY = ['internal', 'unread'] as const
@@ -17,6 +18,31 @@ export function useInternalMessages() {
     if (!socket) return
 
     const onNew = (data: { message: InternalMessage }) => {
+      const currentUserId = useAuthStore.getState().user?.id
+
+      // Sound logic: pop if actively on the team chat page, ding + toast if elsewhere
+      if (data.message.senderId !== currentUserId) {
+        const isOnTeamChat = window.location.pathname.includes('/admin/internal') ||
+          window.location.pathname.includes('/team-chat')
+        const isFocused = document.hasFocus() && isOnTeamChat
+
+        if (isFocused) {
+          audio.playPop()
+        } else {
+          audio.playDing()
+          const senderName = data.message.sender?.name ?? 'Team'
+          toast(senderName, {
+            description: data.message.content
+              ? (data.message.content.length > 60 ? data.message.content.slice(0, 60) + '\u2026' : data.message.content)
+              : '\ud83d\udcce Attachment',
+            action: {
+              label: 'View',
+              onClick: () => { window.location.href = '/admin/internal' }
+            }
+          })
+        }
+      }
+
       queryClient.setQueryData<{
         pages: Array<{ success: boolean; messages: InternalMessage[]; hasMore: boolean }>
         pageParams: unknown[]
@@ -26,7 +52,6 @@ export function useInternalMessages() {
           ...old,
           pages: old.pages.map((page, i) => {
             if (i !== 0) return page
-            const currentUserId = useAuthStore.getState().user?.id
             const isOurs = data.message.senderId === currentUserId
             const enriched = (isOurs && !data.message.status) ? { ...data.message, status: 'SENT' as const } : data.message
             return { ...page, messages: [enriched, ...page.messages] }
