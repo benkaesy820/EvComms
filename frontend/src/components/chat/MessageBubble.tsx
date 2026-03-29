@@ -473,7 +473,8 @@ function MessageBubbleInner({
             )}
 
             <div className={cn(
-              'rounded-2xl px-2.5 py-1.5 shadow-sm relative break-words overflow-visible',
+              'rounded-2xl px-2.5 pt-1.5 shadow-[0_1px_1px_rgba(0,0,0,0.1)] relative break-words overflow-visible',
+              groupedReactions.length > 0 ? 'pb-3.5 mb-2.5' : 'pb-1.5',
               isMine
                 ? ['bg-[#d9fdd3] dark:bg-[#005c4b] text-foreground border border-black/5 dark:border-white/5', !hideAvatar && 'rounded-tr-none']
                 : ['bg-card text-card-foreground border border-black/5 dark:border-white/5', !hideAvatar && 'rounded-tl-none'],
@@ -528,7 +529,7 @@ function MessageBubbleInner({
                   without the float/spacer trick that causes bubble-width jitter at threshold lengths */}
               {trimmedContent ? (
                 <div className={cn('flex flex-wrap items-end justify-between gap-x-2', mediaList.length > 0 && 'px-1 pb-1 pt-0.5')}>
-                  <p className="text-[14px] whitespace-pre-wrap leading-relaxed flex-1 min-w-0 break-words">
+                  <p className="text-[14px] whitespace-pre-wrap leading-relaxed flex-1 min-w-0 break-words pr-2">
                     {trimmedContent}
                   </p>
                   <div className="flex items-center gap-1 opacity-70 self-end shrink-0 mb-[1px] ml-1">
@@ -554,24 +555,29 @@ function MessageBubbleInner({
                   )}
                 </div>
               )}
-            </div>
 
-            {/* Reactions below bubble */}
-            {groupedReactions.length > 0 && (
-              <div className={cn('flex flex-wrap gap-1 mt-1.5 max-w-[90%]', isMine ? 'justify-end' : 'justify-start')}>
-                {groupedReactions.map((group) => (
-                  <button key={group.emoji} onClick={() => onReact?.(group.emoji)}
-                    className={cn('text-[12px] px-2 py-0.5 rounded-full transition-all border shrink-0',
-                      group.hasReacted
-                        ? isMine ? 'bg-black/10 dark:bg-white/10 border-black/20 dark:border-white/20 text-foreground' : 'bg-primary/10 border-primary/20 text-primary'
-                        : isMine ? 'bg-black/5 dark:bg-black/20 border-transparent text-foreground/80 hover:bg-black/10 dark:hover:bg-black/40' : 'bg-background/50 border-transparent text-muted-foreground hover:bg-muted')}
-                    title={group.users.length > 0 ? group.users.join(', ') : group.emoji}
-                    aria-pressed={group.hasReacted}>
-                    {group.emoji}{group.count > 1 && <span className="text-[10px] opacity-70 ml-1">{group.count}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
+              {/* WhatsApp-style Overlapping Reactions */}
+              {groupedReactions.length > 0 && (
+                <div className={cn(
+                  'absolute -bottom-3 flex items-center gap-0.5 shadow-sm rounded-full z-10',
+                  isMine ? 'right-4' : 'right-4'
+                )}>
+                  {groupedReactions.map((group) => (
+                    <button key={group.emoji} onClick={(e) => { e.stopPropagation(); onReact?.(group.emoji); }}
+                      className={cn(
+                        'flex items-center justify-center px-1.5 py-0.5 rounded-full select-none cursor-pointer transition-transform hover:scale-110',
+                        'bg-card border-2 border-background dark:border-[#0b141a]', 
+                        group.hasReacted ? 'bg-primary/10 border-background dark:border-[#0b141a]' : ''
+                      )}
+                      title={group.users.length > 0 ? group.users.join(', ') : group.emoji}
+                      aria-pressed={group.hasReacted}>
+                      <span className="text-[13px] leading-none mb-[1px]">{group.emoji}</span>
+                      {group.count > 1 && <span className="text-[10px] font-bold text-muted-foreground ml-0.5 leading-none">{group.count}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Failed message retry — shown below bubble */}
