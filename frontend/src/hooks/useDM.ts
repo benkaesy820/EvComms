@@ -33,13 +33,16 @@ export function useDMConversations() {
 
       // Sound: only play for inbound messages
       if (isInbound) {
-        // Check if the user is actively viewing this exact DM thread
         const isOnDMPage = window.location.pathname.includes('/admin/dm')
         const urlPartnerId = window.location.pathname.split('/').pop()
-        const isViewingThisThread = document.hasFocus() && isOnDMPage && urlPartnerId === partnerId
+        const isViewingThisThread = isOnDMPage && urlPartnerId === partnerId
+        const isFocused = document.hasFocus() && isViewingThisThread
 
-        if (isViewingThisThread) {
+        if (isFocused) {
           audio.playPop()
+        } else if (isViewingThisThread) {
+          // On the right thread but unfocused -> ding, no toast
+          audio.playDing()
         } else {
           audio.playDing()
           const senderName = (message.sender as { name?: string })?.name ?? 'Direct Message'

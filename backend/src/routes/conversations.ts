@@ -14,6 +14,7 @@ import { createRateLimiters } from '../middleware/rateLimit.js'
 import { setConversationOwner, serverState, getUserFromCache } from '../state.js'
 import { sanitizeText, isValidId, anonymizeIpAddress } from '../lib/utils.js'
 import { logger } from '../lib/logger.js'
+import { sendPushToUser } from '../lib/webPush.js'
 
 const textMessageSchema = z.object({
   type: z.literal('TEXT'),
@@ -934,6 +935,22 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
     if (isAdminSending) {
       // Serverless execution: Complete the atomic send block natively
       await queueEmailNotification(conversation.userId).catch(e => logger.error({ e }, 'HTTP Email enqueue failed'))
+      // Web Push for User
+      sendPushToUser(conversation.userId, {
+        title: `Reply from ${senderShape.name}`,
+        body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
+        data: { url: `/home/chat`, conversationId, type: 'chat' }
+      }).catch(err => logger.error({ err }, 'Push send failed'))
+    } else {
+      // User sending to Admin
+      const assignedAdminId = updatedConversation?.assignedAdminId ?? conversation.assignedAdminId
+      if (assignedAdminId) {
+        sendPushToUser(assignedAdminId, {
+          title: `New Message from ${senderShape.name}`,
+          body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
+          data: { url: `/admin`, conversationId, type: 'chat' }
+        }).catch(err => logger.error({ err }, 'Push send failed'))
+      }
     }
 
     return reply.code(201).send({

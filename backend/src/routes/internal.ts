@@ -11,6 +11,7 @@ import { sanitizeText, isValidId, anonymizeIpAddress } from '../lib/utils.js'
 import { logger } from '../lib/logger.js'
 import { serverState, getUserFromCache } from '../state.js'
 import { getConfig } from '../lib/config.js'
+import { sendPushToUser } from '../lib/webPush.js'
 
 const emojiRegex = /^[\p{Emoji}]+$/u
 
@@ -172,6 +173,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
 
   // C-4 FIX: All three writes in a single atomic transaction.
   // A failure in any one rolls back all three — no orphaned messages or missing audit trails.
+  let otherAdmins: { id: string }[] = []
   try {
     await db.transaction(async (tx) => {
       await tx.insert(internalMessages).values({
@@ -184,7 +186,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         createdAt,
       })
 
-      const otherAdmins = await tx.select({ id: users.id }).from(users).where(
+      otherAdmins = await tx.select({ id: users.id }).from(users).where(
         and(
           inArray(users.role, ['ADMIN', 'SUPER_ADMIN']),
           eq(users.status, 'APPROVED'),
@@ -242,6 +244,20 @@ export async function internalRoutes(fastify: FastifyInstance) {
 
     try {
       emitToAdmins('internal:message', { message: payload })
+
+      // Dispatch Push Notifications to all admins who are NOT currently connected via WebSockets
+      // or who are marked as away/offline.
+      const senderName = cachedSender?.name ?? 'An admin'
+      for (const admin of otherAdmins) {
+        // Simple heuristic: if we send to everybody, we rely on the PWA to deduplicate if focused.
+        // It's safer to attempt send to all off-thread admins. (sendPushToUser checks for subscriptions).
+        sendPushToUser(admin.id, {
+          title: `Team Message from ${senderName}`,
+          body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Shared an attachment',
+          data: { url: '/admin/internal', type: 'team' }
+        }).catch(err => logger.error({ err }, 'Internal Push send failed'))
+      }
+
     } catch { /* socket not initialized */ }
 
     return sendOk(reply, { message: payload })

@@ -20,7 +20,7 @@ export function useInternalMessages() {
     const onNew = (data: { message: InternalMessage }) => {
       const currentUserId = useAuthStore.getState().user?.id
 
-      // Sound logic: pop if actively on the team chat page, ding + toast if elsewhere
+      // Sound logic: match main chat 3-state system
       if (data.message.senderId !== currentUserId) {
         const isOnTeamChat = window.location.pathname.includes('/admin/internal') ||
           window.location.pathname.includes('/team-chat')
@@ -28,7 +28,11 @@ export function useInternalMessages() {
 
         if (isFocused) {
           audio.playPop()
+        } else if (isOnTeamChat) {
+          // Unfocused but on the correct page -> ding, no toast
+          audio.playDing()
         } else {
+          // Completely elsewhere -> ding + toast
           audio.playDing()
           const senderName = data.message.sender?.name ?? 'Team'
           toast(senderName, {
