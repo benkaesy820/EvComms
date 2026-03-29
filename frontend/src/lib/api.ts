@@ -55,11 +55,23 @@ function setAuthToken(token: string | null) {
   memoryToken = token
 }
 
+function getRefreshToken(): string | null {
+  try { return localStorage.getItem('refresh_token') } catch { return null }
+}
+
+function setRefreshToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem('refresh_token', token)
+    else localStorage.removeItem('refresh_token')
+  } catch {}
+}
+
 // SECURITY FIX: Clear any stale memory tokens on module init to prevent cross-session contamination
 // This ensures a clean state when the app loads
 export function clearAuthMemory(): void {
   memoryToken = null
   memoryCsrfToken = null
+  setRefreshToken(null)
 }
 
 function getCsrfToken(): string | null {
@@ -78,9 +90,14 @@ async function tryRefreshToken(): Promise<boolean> {
   }
   isRefreshing = true
   try {
+    const headers: Record<string, string> = {}
+    const rT = getRefreshToken()
+    if (rT) headers['x-refresh-token'] = rT
+
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      headers
     })
     if (!res.ok) throw new Error('Refresh failed')
     // Extract and store new token from refresh response
@@ -90,6 +107,9 @@ async function tryRefreshToken(): Promise<boolean> {
     }
     if (data.csrfToken) {
       memoryCsrfToken = data.csrfToken
+    }
+    if (data.refreshToken) {
+      setRefreshToken(data.refreshToken)
     }
     const waiters = refreshWaiters
     refreshWaiters = []
@@ -163,8 +183,12 @@ async function request<T>(
     if ('token' in data && typeof data.token === 'string' && isAuthPath && (path === '/auth/login' || path === '/auth/refresh' || path === '/auth/password/change')) {
       setAuthToken(data.token)
     }
+    if ('refreshToken' in data && typeof data.refreshToken === 'string' && isAuthPath && (path === '/auth/login' || path === '/auth/refresh' || path === '/auth/password/change')) {
+      setRefreshToken(data.refreshToken)
+    }
     if (isAuthPath && (path === '/auth/logout' || path === '/auth/sessions/revoke-all')) {
       setAuthToken(null)
+      setRefreshToken(null)
     }
   }
   return data

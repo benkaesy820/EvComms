@@ -148,7 +148,10 @@ export const useAuthStore = create<AuthState>()(
             Object.keys(localStorage)
               .filter(k => k.startsWith(prefix))
               .forEach(k => localStorage.removeItem(k))
+            localStorage.removeItem('refresh_token')
           } catch { /* localStorage unavailable */ }
+        } else {
+          try { localStorage.removeItem('refresh_token') } catch {}
         }
         disconnectSocket()
         set({ user: null, isAuthenticated: false, isLoading: false })

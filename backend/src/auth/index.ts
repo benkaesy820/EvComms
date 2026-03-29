@@ -632,6 +632,7 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
     return sendOk(reply, {
       token,
       csrfToken: cookies.csrfToken,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -1146,16 +1147,21 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
       message: 'Password updated',
       token,
       csrfToken,
+      refreshToken: newRefreshToken,
     })
   })
 
-  // SECURITY FIX: Refresh token now read exclusively from httpOnly cookie
-  // Body parameter removed to prevent token exposure in request logs
+  // SECURITY FIX: Refresh token read from httpOnly cookie or x-refresh-token header
+  // Header fallback is strictly preserved for cross-origin private tabs.
+  // Body parameter intentionally disabled.
 
   fastify.post('/refresh', { preHandler: rateLimiters.api }, async (request, reply) => {
-    // SECURITY FIX: Read refresh token from httpOnly cookie only
-    // This prevents token exposure in request logs and network interception
-    const rawToken = request.cookies.refresh_token
+    let rawToken = request.cookies.refresh_token
+    
+    // Fallback unconditionally for private tabs blocking third-party cookies
+    if (!rawToken && request.headers['x-refresh-token']) {
+      rawToken = request.headers['x-refresh-token'] as string
+    }
 
     if (!rawToken) {
       return sendError(reply, 400, 'VALIDATION_ERROR', 'Refresh token is required')
@@ -1269,6 +1275,7 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
       return sendOk(reply, {
         token: newToken,
         csrfToken: cookies.csrfToken,
+        refreshToken: newRefreshToken,
         user: {
           id: userId,
           email: userEmail,
