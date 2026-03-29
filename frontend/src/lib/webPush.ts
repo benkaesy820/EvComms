@@ -9,9 +9,12 @@
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
-// Converts a VAPID base64url public key string to a Uint8Array backed by a plain ArrayBuffer
-// (not SharedArrayBuffer) so it satisfies the applicationServerKey type constraint.
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+// Converts a VAPID base64url public key to an ArrayBuffer.
+// Returning ArrayBuffer (not Uint8Array) is the safest choice:
+// applicationServerKey accepts BufferSource which includes ArrayBuffer,
+// and we avoid the Uint8Array<ArrayBufferLike> vs Uint8Array<ArrayBuffer>
+// generic mismatch that TypeScript 5.x introduced.
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   const rawData = window.atob(base64)
@@ -19,7 +22,8 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   for (let i = 0; i < rawData.length; i++) {
     bytes[i] = rawData.charCodeAt(i)
   }
-  return bytes
+  // .slice(0) creates a new ArrayBuffer (never SharedArrayBuffer)
+  return bytes.buffer.slice(0)
 }
 
 export function isPushSupported(): boolean {
@@ -76,7 +80,7 @@ export async function subscribeToPush(): Promise<boolean> {
       return true
     }
 
-    const key = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    const key = urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
     const subscription = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: key,

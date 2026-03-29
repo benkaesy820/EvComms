@@ -152,7 +152,8 @@ export function SettingsPage() {
   const { state: pushState, enable: enablePush, disable: disablePush } = useWebPush()
   const isPushLoading = pushState === 'loading'
   const isPushSubscribed = pushState === 'subscribed'
-  const isPushUnsupported = pushState === 'unsupported' || pushState === 'denied'
+  const isPushUnsupported = pushState === 'unsupported'
+  const isPushDenied = pushState === 'denied'
   const handlePushToggle = async (enabled: boolean) => {
     if (enabled) {
       const ok = await enablePush()
@@ -452,7 +453,7 @@ export function SettingsPage() {
                       <Switch
                         id="push-notifications-toggle"
                         checked={isPushSubscribed}
-                        disabled={isPushLoading || isPushUnsupported}
+                        disabled={isPushLoading || isPushDenied}
                         onCheckedChange={handlePushToggle}
                       />
                     </div>
