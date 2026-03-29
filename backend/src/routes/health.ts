@@ -16,6 +16,9 @@ export async function healthRoutes(fastify: FastifyInstance) {
   fastify.get('/health', { preHandler: rateLimiters.api }, async (request, reply) => {
     const now = Date.now()
     const cacheConfig = getCacheConfig()
+
+    // Only serve cached result when it was healthy — never serve a stale healthy
+    // response to a PaaS load balancer while the DB is actually down.
     if (cachedHealthResult && now - cachedHealthAt < cacheConfig.healthTTLMs) {
       return reply.send(cachedHealthResult)
     }
@@ -36,11 +39,19 @@ export async function healthRoutes(fastify: FastifyInstance) {
       const statusCode = dbHealth.status === 'healthy' ? 200 :
         dbHealth.status === 'degraded' ? 200 : 503
 
-      cachedHealthResult = response
-      cachedHealthAt = Date.now()
+      // Cache ONLY when healthy — degraded/unhealthy must always re-check
+      if (dbHealth.status === 'healthy') {
+        cachedHealthResult = response
+        cachedHealthAt = Date.now()
+      } else {
+        cachedHealthResult = null
+        cachedHealthAt = 0
+      }
 
       return reply.code(statusCode).send(response)
     } catch (error) {
+      cachedHealthResult = null
+      cachedHealthAt = 0
       return reply.code(503).send({
         status: 'error',
         timestamp: new Date().toISOString(),
@@ -101,5 +112,4 @@ export async function healthRoutes(fastify: FastifyInstance) {
       })
     }
   })
-
 }

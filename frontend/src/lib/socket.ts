@@ -23,6 +23,7 @@ interface ServerToClientEvents {
   'conversation:archived': (data: { conversationId: string; archivedBy: string }) => void
   'conversation:unarchived': (data: { conversationId: string; unarchivedBy: string }) => void
   'conversation:new': (data: { conversation: Conversation }) => void
+  'conversation:subsidiary_changed': (data: { conversationId: string; subsidiaryId: string | null; changedBy: string }) => void
   'conversation:reopened': (data: { conversationId: string; unarchivedBy?: string }) => void
   'stats:invalidate': () => void
 

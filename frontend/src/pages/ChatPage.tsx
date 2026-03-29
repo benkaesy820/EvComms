@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { MessageSquare, Send, Headphones, Sparkles, CheckSquare, Square, Building2, ChevronDown, Archive, RotateCcw, X } from 'lucide-react'
+import { MessageSquare, Send, Headphones, Sparkles, CheckSquare, Square, Building2, ChevronDown, Archive, RotateCcw } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MessageBubble, TypingIndicator } from '@/components/chat/MessageBubble'
 import { MessageInput } from '@/components/chat/MessageInput'
 import { AnnouncementsBanner } from '@/components/chat/AnnouncementsBanner'
@@ -100,39 +99,6 @@ export function ChatPage() {
     (location.state as { subsidiaryId?: string } | null)?.subsidiaryId ?? undefined
   )
   const [showSubsidiaryPicker, setShowSubsidiaryPicker] = useState(false)
-  // Intercept modal: shown before first send when subsidiaries exist and none selected
-  const [showSubsidiaryModal, setShowSubsidiaryModal] = useState(false)
-  // Pending send data — held while the modal is open, dispatched on selection
-  const pendingSendRef = useRef<Parameters<typeof handleSendInner>[0] | null>(null)
-
-  // Smart subsidiary nudge — shown after NUDGE_MSG_THRESHOLD messages on a General Enquiry.
-  // nudgeDismissedAtCount tracks the message count when the user last dismissed/selected —
-  // the nudge won't re-appear until NUDGE_MSG_THRESHOLD *new* messages have arrived since then.
-  // Persisted to localStorage keyed by conversationId so browser close doesn't reset it.
-  const NUDGE_MSG_THRESHOLD = 15
-  const NUDGE_TIME_THRESHOLD_MS = 10 * 60 * 1000
-
-  // Key by userId so different users on the same browser have independent nudge state
-  const getNudgeStorageKey = (convId: string) => `nudge-dismissed-at:${user?.id ?? 'anon'}:${convId}`
-
-  const [nudgeDismissedAtCount, setNudgeDismissedAtCount] = useState<number>(() => {
-    // Rehydrate from localStorage on mount so browser close respects the last dismiss
-    try {
-      const stored = conversationId
-        ? localStorage.getItem(getNudgeStorageKey(conversationId))
-        : null
-      return stored !== null ? parseInt(stored, 10) : 0
-    } catch { return 0 }
-  })
-
-  const dismissNudge = (currentMsgCount: number) => {
-    setNudgeDismissedAtCount(currentMsgCount)
-    try {
-      if (conversationId)
-        localStorage.setItem(getNudgeStorageKey(conversationId), String(currentMsgCount))
-    } catch { return }
-  }
-
   const subsidiaryPickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -221,24 +187,6 @@ export function ChatPage() {
     () => msgData?.pages.flatMap((p: { messages: Message[] }) => p.messages) ?? [],
     [msgData]
   )
-
-  // Show nudge when: subsidiaries exist, user explicitly chose General Enquiry (null — not
-  // undefined which means "not chosen yet"), conv not locked, not archived, not dismissed,
-  // and (enough messages OR conv old enough). The selectedSubsidiaryId === null guard
-  // prevents a flicker where undefined briefly passes through before the server confirms.
-  const convCreatedAt = convData?.conversation?.createdAt
-  const convAgeMs = convCreatedAt ? Date.now() - Number(convCreatedAt) : 0
-  // Re-show nudge only after NUDGE_MSG_THRESHOLD new messages since the last dismiss.
-  // nudgeDismissedAtCount === 0 means never dismissed — use the base threshold directly.
-  const nudgeNextThreshold = nudgeDismissedAtCount === 0
-    ? NUDGE_MSG_THRESHOLD
-    : nudgeDismissedAtCount + NUDGE_MSG_THRESHOLD
-  const showSubsidiaryNudge =
-    subsidiaries.length > 0 &&
-    selectedSubsidiaryId === null &&
-    !subsidiaryLocked &&
-    !isArchived &&
-    (allMessages.length >= nudgeNextThreshold || convAgeMs >= NUDGE_TIME_THRESHOLD_MS)
 
   // Timer fallback: also fire markRead on message arrival (in case viewport hook missed it)
   useEffect(() => {
@@ -430,34 +378,13 @@ export function ChatPage() {
 
   type SendData = { type: string; content?: string; mediaId?: string; media?: { id: string; type: string; cdnUrl: string; filename: string; size: number; mimeType: string } | null; replyToId?: string; announcementId?: string; subsidiaryId?: string }
 
-  const handleSendInner = useCallback(
-    (data: SendData, overrideSubsidiaryId?: string | null) => {
-      sendMessage.mutate({ ...data, subsidiaryId: overrideSubsidiaryId !== undefined ? (overrideSubsidiaryId ?? undefined) : (selectedSubsidiaryId ?? undefined) })
+  const handleSend = useCallback(
+    (data: SendData) => {
+      // If undefined (not picked), it defaults to null on the backend, which is fine (General Inquiry)
+      sendMessage.mutate({ ...data, subsidiaryId: selectedSubsidiaryId ?? undefined })
     },
     [sendMessage, selectedSubsidiaryId],
   )
-
-  // Intercept first send: if subsidiaries exist and none selected yet, show picker
-  const handleSend = useCallback(
-    (data: SendData) => {
-      if (subsidiaries.length > 0 && selectedSubsidiaryId === undefined && !subsidiaryLocked) {
-        pendingSendRef.current = data
-        setShowSubsidiaryModal(true)
-        return
-      }
-      handleSendInner(data)
-    },
-    [subsidiaries.length, selectedSubsidiaryId, subsidiaryLocked, handleSendInner],
-  )
-
-  const handleSubsidiaryChoice = useCallback((subsidiaryId: string | null) => {
-    setShowSubsidiaryModal(false)
-    // Always record the choice — null means General Enquiry, which stops the modal re-triggering
-    setSelectedSubsidiaryId(subsidiaryId)
-    const pending = pendingSendRef.current
-    pendingSendRef.current = null
-    if (pending) handleSendInner(pending, subsidiaryId)
-  }, [handleSendInner])
 
   // ── Mobile keyboard fix ──────────────────────────────────────────────────────
   // On iOS/Android the virtual keyboard shrinks the visual viewport but NOT
@@ -532,7 +459,7 @@ export function ChatPage() {
                     <div className="absolute right-0 top-full mt-1 w-48 rounded-xl border bg-popover shadow-lg z-50 overflow-hidden">
                       <button
                         className="w-full text-left px-3 py-2.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
-                        onClick={() => { setSelectedSubsidiaryId(null); dismissNudge(allMessages.length); setShowSubsidiaryPicker(false) }}
+                        onClick={() => { setSelectedSubsidiaryId(null); setShowSubsidiaryPicker(false) }}
                       >
                         None (general inquiry)
                       </button>
@@ -540,7 +467,7 @@ export function ChatPage() {
                         <button
                           key={sub.id}
                           className={`w-full text-left px-3 py-2.5 text-xs hover:bg-muted transition-colors ${selectedSubsidiaryId === sub.id ? 'text-primary font-medium bg-primary/5' : ''}`}
-                          onClick={() => { setSelectedSubsidiaryId(sub.id); dismissNudge(allMessages.length); setShowSubsidiaryPicker(false) }}
+                          onClick={() => { setSelectedSubsidiaryId(sub.id); setShowSubsidiaryPicker(false) }}
                         >
                           {sub.name}
                         </button>
@@ -570,56 +497,6 @@ export function ChatPage() {
 
         {/* Announcements */}
         <AnnouncementsBanner />
-
-        {/* Smart subsidiary nudge */}
-        {showSubsidiaryNudge && (
-          <div className="mx-3 mt-2 mb-1 rounded-xl border border-amber-300/40 bg-amber-50/60 dark:bg-amber-950/30 dark:border-amber-700/40 px-4 py-3 flex flex-col gap-2.5 shadow-sm">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-lg leading-none">💬</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 leading-snug">
-                    This conversation has been going for a while
-                  </p>
-                  <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">
-                    Is this still a general enquiry, or can we route you to the right team?
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => dismissNudge(allMessages.length)}
-                className="shrink-0 mt-0.5 text-amber-500/60 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
-                aria-label="Dismiss"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {subsidiaries.map(sub => (
-                <button
-                  key={sub.id}
-                  onClick={() => {
-                    setSelectedSubsidiaryId(sub.id)
-                    dismissNudge(allMessages.length)
-                    // Clean up persisted nudge key — subsidiary chosen, nudge never needed again
-                    try { if (conversationId) localStorage.removeItem(getNudgeStorageKey(conversationId)) } catch { return }
-                    if (conversationId) convApi.updateSubsidiary(conversationId, sub.id).catch(() => {})
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-white dark:bg-amber-900/40 border border-amber-300/60 dark:border-amber-600/40 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-800/50 transition-all shadow-sm"
-                >
-                  <Building2 className="h-3 w-3" />
-                  {sub.name}
-                </button>
-              ))}
-              <button
-                onClick={() => dismissNudge(allMessages.length)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-transparent border border-amber-300/40 dark:border-amber-700/40 text-amber-700/70 dark:text-amber-400/70 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 transition-all"
-              >
-                No, keep as general
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Messages area */}
         <div className="relative flex-1 overflow-hidden min-h-0 flex flex-col">
@@ -743,54 +620,7 @@ export function ChatPage() {
         )}
       </div>
 
-      {/* Subsidiary selection modal — shown before first message */}
-      <Dialog open={showSubsidiaryModal} onOpenChange={(open) => {
-        if (!open) {
-          // Closing without selecting = General Enquiry
-          handleSubsidiaryChoice(null)
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-primary" />
-              Which area can we help you with?
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 py-2">
-            <p className="text-sm text-muted-foreground">Select a subsidiary or continue as a general enquiry. Press <kbd className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">Esc</kbd> to skip.</p>
-            <div className="grid gap-2 pt-1">
-              {subsidiaries.map(sub => (
-                <button
-                  key={sub.id}
-                  className="flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border hover:border-primary/40 hover:bg-primary/5 transition-all group cursor-pointer"
-                  onClick={() => handleSubsidiaryChoice(sub.id)}
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                    <Building2 className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold">{sub.name}</p>
-                    {sub.description && <p className="text-xs text-muted-foreground truncate">{sub.description}</p>}
-                  </div>
-                </button>
-              ))}
-              <button
-                className="flex items-center gap-3 w-full text-left px-4 py-3 rounded-xl border border-dashed hover:border-muted-foreground/40 hover:bg-muted/30 transition-all text-muted-foreground cursor-pointer"
-                onClick={() => handleSubsidiaryChoice(null)}
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-                  <MessageSquare className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">General Enquiry</p>
-                  <p className="text-xs opacity-70">Not specific to any subsidiary</p>
-                </div>
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+
     </div>
   )
 }

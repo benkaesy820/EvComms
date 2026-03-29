@@ -47,7 +47,7 @@ export function AuthLayout({
           <div className="absolute top-1/2 right-12 h-40 w-40 rounded-full bg-white/5" />
 
           <div className="relative z-10 flex items-center gap-3">
-            <Link to="/" className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm hover:scale-105 transition-transform">
+            <Link to="/" className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/10 shadow-sm hover:scale-105 transition-transform">
               <LeafLogo className="h-6 w-6" />
             </Link>
             <span className="text-lg font-bold tracking-tight">{siteName}</span>

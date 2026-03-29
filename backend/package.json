@@ -28,7 +28,6 @@
     "@libsql/client": "^0.17.0",
     "@node-rs/argon2": "^2.0.2",
     "@socket.io/redis-adapter": "^8.3.0",
-    "@tursodatabase/sync": "^0.4.4",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.7.4",

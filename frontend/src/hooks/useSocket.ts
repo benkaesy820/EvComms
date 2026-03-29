@@ -361,6 +361,36 @@ export function useSocketConnection() {
       )
     })
 
+    socket.on('conversation:subsidiary_changed', (data) => {
+      queryClient.setQueriesData<{ pages: Array<{ success: boolean; conversations: Array<{ id: string; subsidiaryId: string | null;[key: string]: unknown }>; hasMore: boolean }>; pageParams: unknown[] }>(
+        { queryKey: ['conversations'] },
+        (old) => {
+          if (!old) return old
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              conversations: page.conversations.map((c) =>
+                c.id === data.conversationId
+                  ? { ...c, subsidiaryId: data.subsidiaryId }
+                  : c,
+              ),
+            })),
+          }
+        },
+      )
+      
+      const currentUser = useAuthStore.getState().user
+      // Only toast admins who are currently viewing/assigned to this chat but didn't make the change.
+      if (currentUser && currentUser.role !== 'USER' && data.changedBy !== currentUser.id) {
+        const isTracking = localStorage.getItem('admin-selected-conversation') === data.conversationId
+        if (isTracking) {
+          audio.playDing()
+          toast.info('Conversation category was updated by another administrator.')
+        }
+      }
+    })
+
     socket.on('user:status_changed', (data) => {
       useAuthStore.setState((state) => {
         if (!state.user) return state

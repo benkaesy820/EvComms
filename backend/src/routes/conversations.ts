@@ -1111,6 +1111,61 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
     return sendOk(reply, { success: true })
   })
 
+  // Update Subsidiary inline
+  fastify.patch('/:id/subsidiary', { preHandler: requireApprovedUser }, async (request, reply) => {
+    try {
+      const user = requireUser(request, reply)
+      if (!user) return
+
+      const { id } = request.params as { id: string }
+      if (!isValidId(id)) return sendError(reply, 400, 'VALIDATION_ERROR', 'Invalid ID')
+
+      const body = z.object({ subsidiaryId: z.string().nullable() }).safeParse(request.body ?? {})
+      if (!body.success) return sendError(reply, 400, 'VALIDATION_ERROR', 'Invalid subsidiary ID')
+
+      const conversation = await db.query.conversations.findFirst({
+        where: and(eq(conversations.id, id), isNull(conversations.deletedAt)),
+        columns: { id: true, userId: true, assignedAdminId: true, archivedAt: true }
+      })
+
+      if (!conversation) return sendError(reply, 404, 'NOT_FOUND', 'Conversation not found')
+      
+      const isAssignedAdmin = conversation.assignedAdminId === user.id
+      const isSuperAdmin = user.role === 'SUPER_ADMIN'
+      const isOwner = conversation.userId === user.id
+      const isAdminUser = user.role === 'ADMIN'
+
+      if (!isAssignedAdmin && !isSuperAdmin && !isOwner && !isAdminUser) {
+        return sendError(reply, 403, 'FORBIDDEN', 'Access denied. You cannot modify this conversation.')
+      }
+
+      await db.update(conversations)
+        .set({ subsidiaryId: body.data.subsidiaryId, updatedAt: new Date() })
+        .where(eq(conversations.id, id))
+
+      // Emit event
+      emitToAdmins('conversation:subsidiary_changed', { 
+        conversationId: id, 
+        subsidiaryId: body.data.subsidiaryId,
+        changedBy: user.id 
+      })
+
+      if (user.role !== 'USER') {
+        emitToUser(conversation.userId, 'conversation:subsidiary_changed', { 
+          conversationId: id, 
+          subsidiaryId: body.data.subsidiaryId,
+          changedBy: user.id 
+        })
+      }
+
+      return sendOk(reply, { success: true })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      logger.error({ error: errorMessage }, 'Failed to update subsidiary')
+      return sendError(reply, 500, 'INTERNAL_ERROR', 'Failed to update subsidiary')
+    }
+  })
+
   // Archive conversation
   fastify.patch('/:id/archive', { preHandler: requireApprovedUser }, async (request, reply) => {
     try {

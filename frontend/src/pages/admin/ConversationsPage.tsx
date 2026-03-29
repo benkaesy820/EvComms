@@ -5,7 +5,7 @@ import {
   Archive, ArchiveRestore, UserCheck, FileWarning, MoreVertical,
   Users, X, Search, UserCog,
   Megaphone, ArrowLeft, PanelLeft, PanelLeftClose, Building2, Square, CheckSquare,
-  UserMinus, ShieldOff, CheckCircle, Inbox, Plus, Mail, Clock, AlertCircle
+  UserMinus, ShieldOff, CheckCircle, Inbox, Plus, Mail, Clock, AlertCircle, ChevronDown
 } from 'lucide-react'
 import { toast } from '@/components/ui/sonner'
 import { Input } from '@/components/ui/input'
@@ -322,6 +322,8 @@ function AdminChatView({
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const conversationId = conversation.id
   const queryClient = useQueryClient()
+  const { data: configData } = useAppConfig()
+  const subsidiaries = configData?.subsidiaries ?? []
 
   const { data: msgData, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useMessages(conversationId)
   const sendMessage = useSendMessage(conversationId)
@@ -591,13 +593,51 @@ function AdminChatView({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p className="text-sm font-semibold truncate">{conversation.user?.name}</p>
-            {subsidiaryName && (
-              <Badge variant="secondary" className="px-2 py-0.5 text-xs font-semibold bg-primary/15 text-primary hover:bg-primary/25 transition-colors border-0">
-                <Building2 className="h-3 w-3 mr-1.5" />
+            {subsidiaries.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger className="focus:outline-none">
+                  <Badge variant="secondary" className="px-2 py-0.5 text-xs font-semibold bg-primary/15 text-primary hover:bg-primary/25 transition-colors border-0 cursor-pointer flex items-center gap-1.5 focus:ring-0">
+                    <Building2 className="h-3 w-3" />
+                    {subsidiaryName || 'General Inquiry'}
+                    {subsidiaryIndustry ? ` · ${subsidiaryIndustry}` : ''}
+                    <ChevronDown className="h-3 w-3 opacity-50 ml-0.5" />
+                  </Badge>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuLabel>Change Category</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    className={!conversation.subsidiaryId ? 'bg-primary/10 font-medium' : ''}
+                    onClick={() => {
+                      if (conversation.subsidiaryId !== null) {
+                        convApi.updateSubsidiary(conversationId, null).catch(() => {})
+                      }
+                    }}
+                  >
+                    General Inquiry
+                  </DropdownMenuItem>
+                  {subsidiaries.map(sub => (
+                    <DropdownMenuItem 
+                      key={sub.id}
+                      className={conversation.subsidiaryId === sub.id ? 'bg-primary/10 font-medium' : ''}
+                      onClick={() => {
+                        if (conversation.subsidiaryId !== sub.id) {
+                          convApi.updateSubsidiary(conversationId, sub.id).catch(() => {})
+                        }
+                      }}
+                    >
+                      {sub.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : subsidiaryName ? (
+              <Badge variant="secondary" className="px-2 py-0.5 text-xs font-semibold bg-primary/15 text-primary border-0 flex items-center gap-1.5">
+                <Building2 className="h-3 w-3" />
                 {subsidiaryName}
                 {subsidiaryIndustry ? ` · ${subsidiaryIndustry}` : ''}
               </Badge>
-            )}
+            ) : null}
           </div>
           <p className="text-[11px] text-muted-foreground truncate">
             {typingUsers.size > 0 ? 'typing…' : isUserOnline ? 'Online' : conversation.user?.email}
