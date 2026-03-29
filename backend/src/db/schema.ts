@@ -821,6 +821,36 @@ export const userReportsRelations = relations(userReports, ({ one }) => ({
 }))
 
 // ============================================================================
+// PUSH SUBSCRIPTIONS TABLE — Web Push Notification device registrations
+// ============================================================================
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+  id: text('id').primaryKey(), // ulid
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+
+  // Standard Web Push fields from PushSubscription.toJSON()
+  endpoint: text('endpoint').notNull(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+
+  // Optional: device hint for display in settings
+  userAgent: text('user_agent'),
+
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+}, (table) => ({
+  // One user can have many devices — lookup all subs for a user to fan-out pushes
+  userIdx: index('idx_push_subs_user').on(table.userId),
+  // Endpoint must be unique globally — different users cannot share an endpoint,
+  // and a re-subscribe from the same browser must upsert, not duplicate.
+  endpointUnique: unique('uq_push_endpoint').on(table.endpoint),
+}))
+
+export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one }) => ({
+  user: one(users, { fields: [pushSubscriptions.userId], references: [users.id] }),
+}))
+
+
+// ============================================================================
 // TYPE EXPORTS
 // ============================================================================
 export type User = typeof users.$inferSelect

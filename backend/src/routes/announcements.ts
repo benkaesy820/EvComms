@@ -11,6 +11,7 @@ import { sanitizeText, escapeHtml, isValidId, anonymizeIpAddress } from '../lib/
 import { logger } from '../lib/logger.js'
 import { serverState, getUserFromCache } from '../state.js'
 import { createRateLimiters } from '../middleware/rateLimit.js'
+import { sendPushToUser } from '../lib/webPush.js'
 
 const reactionSchema = z.object({
   // NFC-normalise so encoding-equivalent emoji always map to the same DB value.
@@ -348,6 +349,42 @@ export async function announcementRoutes(fastify: FastifyInstance) {
       }
     } catch (err) {
       logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Socket broadcast failed for announcement')
+    }
+
+    // Push notifications: fan-out to all offline users/admins in the target audience
+    try {
+      const roles = parseTargetRoles(body.data.targetRoles ? JSON.stringify(body.data.targetRoles) : null)
+      const authorName = getUserFromCache(user.id)?.name ?? 'EvComms'
+      const preview = announcement.content
+        ? announcement.content.replace(/<[^>]+>/g, '').slice(0, 100)
+        : announcement.title
+
+      // Determine which DB roles to query
+      const targetDbRoles: Array<'USER' | 'ADMIN' | 'SUPER_ADMIN'> = roles
+        ? roles
+        : ['USER', 'ADMIN', 'SUPER_ADMIN']
+
+      const candidates = await db.query.users.findMany({
+        where: and(
+          eq(users.status, 'APPROVED'),
+          inArray(users.role, targetDbRoles)
+        ),
+        columns: { id: true },
+      })
+
+      await Promise.allSettled(candidates.map(candidate => {
+        if (!serverState.connectedUsers.has(candidate.id)) {
+          return sendPushToUser(candidate.id, {
+            title: `📢 ${announcement.title}`,
+            body: preview,
+            tag: `announcement:${announcement.id}`,
+            data: { url: `/announcements/${announcement.id}` },
+          })
+        }
+        return Promise.resolve()
+      }))
+    } catch (err) {
+      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Push fan-out failed for announcement')
     }
 
     return sendOk(reply, { announcement })

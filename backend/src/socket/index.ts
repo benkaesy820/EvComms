@@ -27,6 +27,7 @@ import {
 } from '../lib/socketSchemas.js'
 import { sanitizeText } from '../lib/utils.js'
 import { queueEmailNotification } from '../services/emailQueue.js'
+import { sendPushToUser } from '../lib/webPush.js'
 
 interface DecodedToken {
   sub: string
@@ -35,6 +36,7 @@ interface DecodedToken {
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED'
   sid: string
   exp: number
+  iat: number
 }
 
 interface AuthError {
@@ -351,13 +353,20 @@ async function authenticateSocket(socket: Socket): Promise<void> {
       throw { message: 'Account not approved', code: 'NOT_APPROVED' } as AuthError
     }
 
+    // SHORT-CIRCUIT: If we already know from cache this session is invalid, bail immediately.
+    // But ONLY skip bypass if the token isn't freshly issued — a recently issued token could
+    // arrive at the socket before Turso edge replication propagates the write (race condition).
     const cachedSessionValid = getSessionValidationCache(decoded.sub, decoded.sid)
-    if (cachedSessionValid === false) {
+    const tokenIssuedAt = decoded.iat ? (decoded.iat as number) * 1000 : 0
+    const isFreshToken = Date.now() - tokenIssuedAt < 10_000 // 10s grace for replication lag
+
+    if (cachedSessionValid === false && !isFreshToken) {
       throw { message: 'Session invalid', code: 'SESSION_INVALID' } as AuthError
     }
-    if (cachedSessionValid === undefined) {
-      // Cache miss: validate against DB and cache the result
-      const sessionRow = await db.query.sessions.findFirst({
+
+    if (cachedSessionValid === undefined || (cachedSessionValid === false && isFreshToken)) {
+      // Cache miss (or fresh token that was previously rejected): validate against DB.
+      let sessionRow = await db.query.sessions.findFirst({
         where: and(
           eq(sessions.id, decoded.sid),
           eq(sessions.userId, decoded.sub),
@@ -366,9 +375,33 @@ async function authenticateSocket(socket: Socket): Promise<void> {
         ),
         columns: { id: true }
       })
+
+      // Turso replication lag mitigation: if a fresh token's session isn't found yet,
+      // wait 600ms and try once more before giving up. This covers the race where the
+      // socket connects before the login write has propagated to the read replica.
+      if (!sessionRow && isFreshToken) {
+        await new Promise(resolve => setTimeout(resolve, 600))
+        sessionRow = await db.query.sessions.findFirst({
+          where: and(
+            eq(sessions.id, decoded.sid),
+            eq(sessions.userId, decoded.sub),
+            isNull(sessions.revokedAt),
+            gt(sessions.expiresAt, new Date())
+          ),
+          columns: { id: true }
+        })
+      }
+
       const sessionConfig = getSessionConfig()
-      setSessionValidationCache(decoded.sub, decoded.sid, !!sessionRow, sessionConfig.validationTTLMs)
-      if (!sessionRow) {
+      if (sessionRow) {
+        // Only cache valid sessions permanently; don't cache invalid for fresh tokens.
+        setSessionValidationCache(decoded.sub, decoded.sid, true, sessionConfig.validationTTLMs)
+      } else if (!isFreshToken) {
+        // Cache the invalid result only once we're past the fresh-token grace period.
+        setSessionValidationCache(decoded.sub, decoded.sid, false, sessionConfig.validationTTLMs)
+        throw { message: 'Session invalid', code: 'SESSION_INVALID' } as AuthError
+      } else {
+        // Fresh token, session still not found after retry — fail but don't cache false.
         throw { message: 'Session invalid', code: 'SESSION_INVALID' } as AuthError
       }
     }
@@ -1019,7 +1052,37 @@ async function handleMessageSend(socket: Socket, user: SocketUser, data: unknown
   }
 
   if (isAdminSending) {
+    // Email notification for user
     await queueEmailNotification(conversation.userId).catch(e => logger.error({ e }, 'Socket Email enqueue failed'))
+
+    // Web push: notify the user if they are NOT currently connected via WebSocket
+    if (!serverState.connectedUsers.has(conversation.userId)) {
+      const senderName = getUserFromCache(user.id)?.name ?? 'Support'
+      const preview = sanitizedContent
+        ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
+        : context.type === 'IMAGE' ? '📷 Image' : '📎 File'
+      sendPushToUser(conversation.userId, {
+        title: senderName,
+        body: preview,
+        tag: `conv:${context.conversationId}`,
+        data: { conversationId: context.conversationId, url: '/' },
+      }).catch(e => logger.warn({ e }, 'Push to user failed'))
+    }
+  } else {
+    // User sent a message — push to the assigned admin if they are offline
+    const targetAdminId = conversation.assignedAdminId
+    if (targetAdminId && !serverState.connectedUsers.has(targetAdminId)) {
+      const userInfo = getUserFromCache(conversation.userId)
+      const preview = sanitizedContent
+        ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
+        : context.type === 'IMAGE' ? '📷 Image' : '📎 File'
+      sendPushToUser(targetAdminId, {
+        title: userInfo?.name ?? 'New Message',
+        body: preview,
+        tag: `conv:${context.conversationId}`,
+        data: { conversationId: context.conversationId, url: '/admin/conversations' },
+      }).catch(e => logger.warn({ e }, 'Push to admin failed'))
+    }
   }
 
   socket.emit('message:sent', { tempId: context.tempId, message: messagePayload })
@@ -1118,8 +1181,39 @@ async function handleInternalMessageSend(socket: Socket, user: SocketUser, data:
     createdAt: now,
   }
 
+  // Broadcast to all admins in the team chat room
   emitToAdmins('internal:message', { message: payload })
   socket.emit('internal:message:sent', { tempId, message: payload })
+
+  // Web push: notify offline admins about the new team message
+  try {
+    const allAdminRows = await db.query.users.findMany({
+      where: eq(users.role, 'ADMIN'),
+      columns: { id: true },
+    })
+    const superAdminRows = await db.query.users.findMany({
+      where: eq(users.role, 'SUPER_ADMIN'),
+      columns: { id: true },
+    })
+    const senderName = getUserFromCache(user.id)?.name ?? 'Team'
+    const preview = sanitized
+      ? sanitized.slice(0, 80) + (sanitized.length > 80 ? '…' : '')
+      : type === 'IMAGE' ? '📷 Image' : '📎 File'
+    const targets = [...allAdminRows, ...superAdminRows].filter(a => a.id !== user.id)
+    await Promise.allSettled(targets.map(admin => {
+      if (!serverState.connectedUsers.has(admin.id)) {
+        return sendPushToUser(admin.id, {
+          title: `${senderName} (Team Chat)`,
+          body: preview,
+          tag: 'internal-chat',
+          data: { url: '/admin/internal' },
+        })
+      }
+      return Promise.resolve()
+    }))
+  } catch (e) {
+    logger.warn({ e }, 'Push to admins (internal) failed')
+  }
 }
 
 async function handleMessagesMarkRead(_socket: Socket, user: SocketUser, data: unknown): Promise<void> {

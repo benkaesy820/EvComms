@@ -23,6 +23,7 @@ import { useTriggerMediaCleanup } from '@/hooks/useUsers'
 import { useAppConfig } from '@/hooks/useConfig'
 import { toast } from '@/components/ui/sonner'
 import { LeafLogo } from '@/components/ui/LeafLogo'
+import { useWebPush } from '@/hooks/useWebPush'
 import {
   Dialog,
   DialogContent,
@@ -146,6 +147,29 @@ export function SettingsPage() {
     onError: () => { setEmailNotify(!emailNotify); toast.error('Failed to update') },
     onSuccess: () => toast.success('Preference updated'),
   })
+
+  // Web push notifications
+  const { state: pushState, enable: enablePush, disable: disablePush } = useWebPush()
+  const isPushLoading = pushState === 'loading'
+  const isPushSubscribed = pushState === 'subscribed'
+  const isPushUnsupported = pushState === 'unsupported' || pushState === 'denied'
+  const handlePushToggle = async (enabled: boolean) => {
+    if (enabled) {
+      const ok = await enablePush()
+      if (!ok) {
+        if (Notification.permission === 'denied') {
+          toast.error('Notifications blocked — enable them in your browser settings')
+        } else {
+          toast.error('Could not enable push notifications')
+        }
+      } else {
+        toast.success('Push notifications enabled')
+      }
+    } else {
+      await disablePush()
+      toast.success('Push notifications disabled')
+    }
+  }
 
   // Password form
   const { register, handleSubmit, reset: resetPwd, formState: { errors, isSubmitting } } = useForm<ChangePasswordInput>({ resolver: zodResolver(changePasswordSchema) })
@@ -405,13 +429,34 @@ export function SettingsPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 sm:pl-3 sm:border-l">
-                  <Bell className="h-3.5 w-3.5 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs font-medium">Email alerts</p>
-                    <p className="text-[10px] text-muted-foreground">Messages</p>
+                <div className="flex items-center gap-2 shrink-0 sm:pl-3 sm:border-l divide-x">
+                  {/* Email alerts */}
+                  <div className="flex items-center gap-2 pr-3">
+                    <Bell className="h-3.5 w-3.5 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs font-medium">Email alerts</p>
+                      <p className="text-[10px] text-muted-foreground">Messages</p>
+                    </div>
+                    <Switch checked={emailNotify} onCheckedChange={(v) => toggleEmail.mutate(v)} />
                   </div>
-                  <Switch checked={emailNotify} onCheckedChange={(v) => toggleEmail.mutate(v)} />
+                  {/* Push notifications */}
+                  {!isPushUnsupported && (
+                    <div className="flex items-center gap-2 pl-3">
+                      <Bell className="h-3.5 w-3.5 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs font-medium">Push alerts</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {pushState === 'denied' ? 'Blocked' : 'Background'}
+                        </p>
+                      </div>
+                      <Switch
+                        id="push-notifications-toggle"
+                        checked={isPushSubscribed}
+                        disabled={isPushLoading || isPushUnsupported}
+                        onCheckedChange={handlePushToggle}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -564,6 +564,29 @@ export function MessageInput({ conversationId, onSend, disabled, linkedAnnouncem
             value={text}
             onChange={(e) => handleTextChange(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={(e) => {
+              if (!canAttach || uploading || disabled) return
+              const items = e.clipboardData?.items
+              if (!items) return
+
+              for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                  e.preventDefault()
+                  const file = items[i].getAsFile()
+                  if (!file) continue
+                  
+                  const previewUrl = URL.createObjectURL(file)
+                  setAttachmentWithCleanup({ 
+                    file, 
+                    type: 'IMAGE', 
+                    filename: `pasted-image-${Date.now()}.png`, 
+                    previewUrl 
+                  })
+                  toast.success('Pasted image attached — send when ready')
+                  break // Only attach the first image found
+                }
+              }
+            }}
             placeholder="Type a message…"
             className="min-h-[44px] max-h-[120px] resize-none pr-14 pl-4 py-3 rounded-2xl bg-background border-transparent focus-visible:ring-0 shadow-sm transition-shadow text-[15px] overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
             rows={1}
@@ -615,3 +638,4 @@ export function MessageInput({ conversationId, onSend, disabled, linkedAnnouncem
     </div>
   )
 }
+

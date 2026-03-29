@@ -45,7 +45,12 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   APP_NAME: z.string().min(1).max(50).default('Business Chat'),
-  APP_URL: z.string().url().default('http://localhost:5173')
+  APP_URL: z.string().url().default('http://localhost:5173'),
+
+  // Web Push Notifications (VAPID)
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
 }).superRefine((data, ctx) => {
   if (data.NODE_ENV === 'production') {
     if (data.JWT_SECRET.length < 32) {
@@ -147,5 +152,9 @@ export const env = {
   corsOrigin: parsed.data.CORS_ORIGIN,
 
   appName: parsed.data.APP_NAME,
-  appUrl: parsed.data.APP_URL
+  appUrl: parsed.data.APP_URL,
+
+  vapidPublicKey: parsed.data.VAPID_PUBLIC_KEY ?? '',
+  vapidPrivateKey: parsed.data.VAPID_PRIVATE_KEY ?? '',
+  vapidSubject: parsed.data.VAPID_SUBJECT ?? `mailto:admin@${parsed.data.APP_URL}`,
 } as const

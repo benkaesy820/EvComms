@@ -23,6 +23,7 @@ import { searchRoutes } from './routes/search.js'
 import { reportsRoutes } from './routes/reports.js'
 import { userReportsRoutes, adminUserReportsRoutes } from './routes/userReports.js'
 import { queueRoutes } from './routes/queue.js'
+import { notificationRoutes } from './routes/notifications.js'
 import { mediaCleanupService } from './services/mediaCleanup.js'
 import { drainEmailQueue } from './services/emailQueue.js'
 import { closeDb, cleanupExpiredSessions, initDb } from './db/index.js'
@@ -226,6 +227,7 @@ await fastify.register(conversationRoutes, { prefix: '/api/conversations' })
   await fastify.register(userReportsRoutes, { prefix: '/api/user-reports' })
   await fastify.register(adminUserReportsRoutes, { prefix: '/api/admin/user-reports' })
   await fastify.register(queueRoutes, { prefix: '/api/admin' })
+  await fastify.register(notificationRoutes, { prefix: '/api/notifications' })
   // healthRoutes registered earlier (before auth hook)
 
   fastify.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply) => {

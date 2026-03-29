@@ -8,6 +8,13 @@
       "when": 1774680436189,
       "tag": "0000_powerful_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1774785126304,
+      "tag": "0001_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

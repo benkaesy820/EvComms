@@ -11,6 +11,7 @@ import { emitToUser } from '../socket/index.js'
 import { serverState, getUserFromCache } from '../state.js'
 import { logger } from '../lib/logger.js'
 import { getConfig } from '../lib/config.js'
+import { sendPushToUser } from '../lib/webPush.js'
 
 const emojiRegex = /^[\p{Emoji}]+$/u
 
@@ -274,6 +275,21 @@ export async function adminDMRoutes(fastify: FastifyInstance) {
     }
 
     emitToUser(adminId, 'dm:message', { message: msg, tempId })
+
+    // Push: notify the recipient if they are offline
+    if (!serverState.connectedUsers.has(adminId)) {
+      const senderName = getUserFromCache(user.id)?.name ?? 'DM'
+      const preview = content
+        ? content.slice(0, 80) + (content.length > 80 ? '\u2026' : '')
+        : type === 'IMAGE' ? '\ud83d\udcf7 Image' : '\ud83d\udcce File'
+      sendPushToUser(adminId, {
+        title: `${senderName} (Direct Message)`,
+        body: preview,
+        tag: `dm:${user.id}`,
+        data: { url: '/admin/dm' },
+      }).catch(e => logger.warn({ e }, 'Push to DM recipient failed'))
+    }
+
     reply.code(201)
     return sendOk(reply, { message: msg, tempId })
   })
