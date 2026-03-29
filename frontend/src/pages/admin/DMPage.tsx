@@ -40,15 +40,22 @@ export function DMPage() {
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN'
   const queryClient = useQueryClient()
 
-  // Mobile keyboard fix
+  // Mobile keyboard fix — same pattern as ChatPage
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const update = () => document.documentElement.style.setProperty('--chat-h', `${vv.height}px`)
+    const update = () => {
+      const h = vv.height
+      document.documentElement.style.setProperty('--chat-h', `${h}px`)
+      document.documentElement.classList.toggle('keyboard-open', window.innerHeight - h > 100)
+    }
     update()
     vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update) }
+    return () => {
+      vv.removeEventListener('resize', update)
+      document.documentElement.style.removeProperty('--chat-h')
+      document.documentElement.classList.remove('keyboard-open')
+    }
   }, [])
 
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('partner'))
@@ -406,7 +413,7 @@ export function DMPage() {
   )
 
   return (
-    <div className="flex h-full overflow-hidden relative">
+    <div className="chat-viewport-height flex overflow-hidden relative">
       {/* Mobile Contact Sheet Overlay */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="p-0 flex flex-col w-[280px]" aria-describedby="dm-contacts-desc">

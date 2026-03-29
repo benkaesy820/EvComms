@@ -168,11 +168,11 @@ export function HomePage() {
   // instead of showing platform-wide numbers which are meaningless to them.
   const { data: adminConvData } = useAdminConversations(false)
   const { data: adminArchivedData } = useAdminConversations(true)
-  const myConversations = adminConvData?.pages.flatMap(p => p.conversations) ?? []
+  const myConversations = adminConvData?.pages.flatMap(p => p?.conversations ?? []) ?? []
   const myAssignedCount = myConversations.length
-  const myUnreadCount = myConversations.filter(c => (c.adminUnreadCount ?? 0) > 0).length
-  const myWaitingCount = myConversations.filter(c => c.waitingSince).length
-  const myResolvedCount = adminArchivedData?.pages.flatMap(p => p.conversations).length ?? 0
+  const myUnreadCount = myConversations.filter(c => c && (c.adminUnreadCount ?? 0) > 0).length
+  const myWaitingCount = myConversations.filter(c => c && c.waitingSince).length
+  const myResolvedCount = adminArchivedData?.pages.flatMap(p => p?.conversations ?? []).length ?? 0
 
   const { data: pendingUsers } = useQuery({
     queryKey: ['admin', 'users', 'pending'],

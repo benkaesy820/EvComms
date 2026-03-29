@@ -270,8 +270,8 @@ body.scrollable-page {
    --chat-h is set by visualViewport resize listener in ChatPage.
    Falls back to 100% so desktop layout is unaffected. */
 .chat-viewport-height {
+  /* visualViewport fires after keyboard has settled — no transition needed */
   height: var(--chat-h, 100%);
-  transition: height 60ms ease-out;
 }
 
 /* ── Scrollbar hide utility (cross-browser) ────────────────────────────────── */
@@ -281,4 +281,12 @@ body.scrollable-page {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* ── Keyboard-open utility ────────────────────────────────────────────────────
+   Tailwind can't generate arbitrary HTML-class variants at build time.
+   When ChatPage/DMPage detect keyboard open they add .keyboard-open to <html>.
+   These rules zero out the bottom-nav padding so input sits just above keyboard. */
+html.keyboard-open main {
+  padding-bottom: 0 !important;
 }

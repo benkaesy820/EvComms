@@ -123,6 +123,7 @@ export function AdminLayout() {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('admin-nav-collapsed') === 'true' } catch { return false }
   })
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false)
   // Read pending report count directly from React Query cache — useReportStatusListener
   // keeps this up-to-date in real time so the badge clears immediately on approval.
   const { data: pendingReportsData } = useReports('PENDING')
@@ -417,7 +418,7 @@ export function AdminLayout() {
           </aside>
 
           {/* Main Content */}
-          <main className="flex-1 min-h-0 overflow-hidden flex flex-col pb-[calc(60px+env(safe-area-inset-bottom))] sm:pb-0">
+          <main className="flex-1 min-h-0 overflow-hidden flex flex-col pb-[calc(60px+env(safe-area-inset-bottom))] keyboard-open:pb-0 sm:pb-0">
             <Outlet />
           </main>
 
@@ -475,7 +476,7 @@ export function AdminLayout() {
                     )
                     const totalOverflowBadge = overflowItems.reduce((sum, item) => sum + getBadgeCount(item), 0)
                     return (
-                      <Sheet>
+                      <Sheet open={moreSheetOpen} onOpenChange={setMoreSheetOpen}>
                         <SheetTrigger asChild>
                           <button className={cn(
                             'flex flex-col items-center justify-center gap-0.5 shrink-0 flex-1 h-full transition-colors relative py-1 min-w-0',
@@ -506,7 +507,7 @@ export function AdminLayout() {
                               return (
                                 <button
                                   key={item.path}
-                                  onClick={() => navigate(item.path)}
+                                  onClick={() => { navigate(item.path); setMoreSheetOpen(false) }}
                                   className={cn(
                                     'flex w-full items-center gap-3 rounded-xl px-4 py-3.5 text-sm font-medium transition-all min-h-[52px]',
                                     isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'

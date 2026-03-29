@@ -387,22 +387,25 @@ export function ChatPage() {
   )
 
   // ── Mobile keyboard fix ──────────────────────────────────────────────────────
-  // On iOS/Android the virtual keyboard shrinks the visual viewport but NOT
-  // window.innerHeight. We listen to visualViewport resize and push a CSS variable
-  // --chat-h that the layout uses instead of h-full, so the input is never hidden.
+  // visualViewport.height shrinks when the keyboard opens; window.innerHeight does not.
+  // We push --chat-h onto <html> so .chat-viewport-height collapses to the visible area.
+  // We also toggle .keyboard-open so UserLayout can zero out its bottom-nav padding
+  // (the fixed nav sits behind the keyboard anyway — the padding is just wasted space).
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
     const update = () => {
-      document.documentElement.style.setProperty('--chat-h', `${vv.height}px`)
+      const h = vv.height
+      document.documentElement.style.setProperty('--chat-h', `${h}px`)
+      const keyboardOpen = window.innerHeight - h > 100
+      document.documentElement.classList.toggle('keyboard-open', keyboardOpen)
     }
     update()
     vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
     return () => {
       vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
       document.documentElement.style.removeProperty('--chat-h')
+      document.documentElement.classList.remove('keyboard-open')
     }
   }, [])
 
