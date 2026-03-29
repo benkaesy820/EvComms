@@ -45,7 +45,7 @@ let memoryCsrfToken: string | null = null
 
 // DEPRECATED: localStorage token storage removed for security
 // Tokens are now stored in httpOnly secure cookies by the backend
-function getAuthToken(): string | null {
+export function getAuthToken(): string | null {
   // Return memory token if available (for the current session)
   return memoryToken
 }

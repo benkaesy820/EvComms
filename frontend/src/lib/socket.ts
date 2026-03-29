@@ -1,4 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
+import { getAuthToken } from '@/lib/api'
 import type { Message, Role, Status, Announcement, Conversation, MessageReaction, InternalMessage } from '@/lib/schemas'
 
 interface ServerToClientEvents {
@@ -117,6 +118,7 @@ export function connectSocket(): AppSocket {
   }
 
   socket = io(SOCKET_URL, {
+    auth: (cb) => cb({ token: typeof getAuthToken === 'function' ? getAuthToken() : undefined }),
     transports: ['websocket', 'polling'],
     withCredentials: true,
     upgrade: true,

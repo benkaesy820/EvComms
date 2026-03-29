@@ -71,7 +71,8 @@ await fastify.register(cors, {
     'X-Request-Id',
     'X-Media-Type',
     'X-Filename',
-    'X-Duration-Seconds'
+    'X-Duration-Seconds',
+    'X-Refresh-Token'
   ],
   exposedHeaders: [
     'X-Request-Id',
