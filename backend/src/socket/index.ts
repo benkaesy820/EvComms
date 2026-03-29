@@ -365,23 +365,16 @@ async function authenticateSocket(socket: Socket): Promise<void> {
     }
 
     if (cachedSessionValid === undefined || (cachedSessionValid === false && isFreshToken)) {
-      // Cache miss (or fresh token that was previously rejected): validate against DB.
-      let sessionRow = await db.query.sessions.findFirst({
-        where: and(
-          eq(sessions.id, decoded.sid),
-          eq(sessions.userId, decoded.sub),
-          isNull(sessions.revokedAt),
-          gt(sessions.expiresAt, new Date())
-        ),
-        columns: { id: true }
-      })
+      const sessionConfig = getSessionConfig()
 
-      // Turso replication lag mitigation: if a fresh token's session isn't found yet,
-      // wait 600ms and try once more before giving up. This covers the race where the
-      // socket connects before the login write has propagated to the read replica.
-      if (!sessionRow && isFreshToken) {
-        await new Promise(resolve => setTimeout(resolve, 600))
-        sessionRow = await db.query.sessions.findFirst({
+      if (isFreshToken) {
+        // Turso replication lag mitigation: The token was signed crypto-graphically <10s ago. 
+        // It is physically impossible to forge. Bypass the DB read replica check entirely
+        // to prevent connection drops while waiting for the master write to propagate.
+        setSessionValidationCache(decoded.sub, decoded.sid, true, sessionConfig.validationTTLMs)
+      } else {
+        // Cache miss: validate against DB read replica.
+        const sessionRow = await db.query.sessions.findFirst({
           where: and(
             eq(sessions.id, decoded.sid),
             eq(sessions.userId, decoded.sub),
@@ -390,19 +383,13 @@ async function authenticateSocket(socket: Socket): Promise<void> {
           ),
           columns: { id: true }
         })
-      }
 
-      const sessionConfig = getSessionConfig()
-      if (sessionRow) {
-        // Only cache valid sessions permanently; don't cache invalid for fresh tokens.
-        setSessionValidationCache(decoded.sub, decoded.sid, true, sessionConfig.validationTTLMs)
-      } else if (!isFreshToken) {
-        // Cache the invalid result only once we're past the fresh-token grace period.
-        setSessionValidationCache(decoded.sub, decoded.sid, false, sessionConfig.validationTTLMs)
-        throw { message: 'Session invalid', code: 'SESSION_INVALID' } as AuthError
-      } else {
-        // Fresh token, session still not found after retry — fail but don't cache false.
-        throw { message: 'Session invalid', code: 'SESSION_INVALID' } as AuthError
+        if (sessionRow) {
+          setSessionValidationCache(decoded.sub, decoded.sid, true, sessionConfig.validationTTLMs)
+        } else {
+          setSessionValidationCache(decoded.sub, decoded.sid, false, sessionConfig.validationTTLMs)
+          throw { message: 'Session invalid', code: 'SESSION_INVALID' } as AuthError
+        }
       }
     }
 

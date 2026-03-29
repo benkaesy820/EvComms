@@ -317,10 +317,10 @@ export function HomePage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {isSuperAdmin ? (
                     <>
-                      <StatCard icon={Users} label="Total Users" value={stats!.users.total} color="text-primary bg-primary/10 ring-primary/20" />
-                      <StatCard icon={Clock} label="Pending" value={stats!.users.pending} color="text-amber-500 bg-amber-500/10 ring-amber-500/20" />
-                      <StatCard icon={MessageSquare} label="Messages" value={stats!.messages} color="text-blue-500 bg-blue-500/10 ring-blue-500/20" />
-                      <StatCard icon={Monitor} label="Online" value={stats!.activeSessions} color="text-green-500 bg-green-500/10 ring-green-500/20" />
+                      <StatCard icon={Users} label="Total Users" value={stats?.users?.total ?? 0} color="text-primary bg-primary/10 ring-primary/20" />
+                      <StatCard icon={Clock} label="Pending" value={stats?.users?.pending ?? 0} color="text-amber-500 bg-amber-500/10 ring-amber-500/20" />
+                      <StatCard icon={MessageSquare} label="Messages" value={stats?.messages ?? 0} color="text-blue-500 bg-blue-500/10 ring-blue-500/20" />
+                      <StatCard icon={Monitor} label="Online" value={stats?.activeSessions ?? 0} color="text-green-500 bg-green-500/10 ring-green-500/20" />
                     </>
                   ) : (
                     <>
@@ -402,9 +402,9 @@ export function HomePage() {
                   </div>
                   <div className="space-y-3">
                     {[
-                      { label: 'Approved', value: stats.users.approved, total: stats.users.total, color: 'bg-green-500' },
-                      { label: 'Suspended', value: stats.users.suspended, total: stats.users.total, color: 'bg-red-500' },
-                      { label: 'Rejected', value: stats.users.rejected, total: stats.users.total, color: 'bg-gray-400' },
+                      { label: 'Approved', value: stats?.users?.approved ?? 0, total: stats?.users?.total ?? 0, color: 'bg-green-500' },
+                      { label: 'Suspended', value: stats?.users?.suspended ?? 0, total: stats?.users?.total ?? 0, color: 'bg-red-500' },
+                      { label: 'Rejected', value: stats?.users?.rejected ?? 0, total: stats?.users?.total ?? 0, color: 'bg-gray-400' },
                     ].map(({ label, value, total, color }) => (
                       <div key={label}>
                         <div className="flex items-center justify-between mb-1">
