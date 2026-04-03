@@ -14,7 +14,7 @@ import { notifications } from './api'
 // applicationServerKey accepts BufferSource which includes ArrayBuffer,
 // and we avoid the Uint8Array<ArrayBufferLike> vs Uint8Array<ArrayBuffer>
 // generic mismatch that TypeScript 5.x introduced.
-function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   const rawData = window.atob(base64)
@@ -22,8 +22,7 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   for (let i = 0; i < rawData.length; i++) {
     bytes[i] = rawData.charCodeAt(i)
   }
-  // .slice(0) creates a new ArrayBuffer (never SharedArrayBuffer)
-  return bytes.buffer.slice(0)
+  return bytes
 }
 
 export function isPushSupported(): boolean {
@@ -91,13 +90,33 @@ export async function subscribeToPush(): Promise<boolean> {
       return sendSubscriptionToServer(existingSubscription)
     }
 
-    const key = urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
-    const subscription = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: key,
-    })
-
-    return sendSubscriptionToServer(subscription)
+    const key = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    
+    // Retry subscription up to 3 times with a short delay
+    // Chrome sometimes throws AbortError on first attempt
+    let lastError: Error | null = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: key,
+        })
+        console.log(`[WebPush] Subscription successful on attempt ${attempt}`)
+        return sendSubscriptionToServer(subscription)
+      } catch (err: any) {
+        lastError = err
+        if (err.name === 'AbortError' && attempt < 3) {
+          console.warn(`[WebPush] Subscription attempt ${attempt} failed, retrying...`)
+          await new Promise(r => setTimeout(r, 1000 * attempt))
+        } else {
+          throw err
+        }
+      }
+    }
+    
+    // All retries failed
+    console.error('[WebPush] All subscription attempts failed:', lastError)
+    return false
   } catch (err) {
     console.warn('[WebPush] Subscribe failed:', err)
     return false
