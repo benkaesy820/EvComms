@@ -26,7 +26,7 @@ import { checkLoginLockout, recordLoginAttempt, createRateLimiters } from '../mi
 import { addUserToCache, getUserFromCache } from '../state.js'
 import { invalidateStatsCache } from '../routes/stats.js'
 import { queueHighPriorityEmail } from '../services/emailQueue.js'
-import { emitToAdmins, forceLogout, forceLogoutSession } from '../socket/index.js'
+import { emitToAdmins, forceLogout, forceLogoutSession, getIO } from '../socket/index.js'
 import { logger } from '../lib/logger.js'
 
 const DUMMY_HASH = '$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -158,6 +158,76 @@ async function evictOldestSession(
       forceLogoutSession(sessionToRevoke.id, 'Session evicted (max devices reached)')
     }
   }
+}
+
+/**
+ * Enforce maxDevices across ALL users after a session config change.
+ * Finds every user with more active sessions than the new limit and revokes the oldest excess.
+ */
+export async function enforceMaxDevicesGlobally(): Promise<{ usersAffected: number; sessionsRevoked: number }> {
+  const maxDevices = getConfig().session.maxDevices
+  const now = new Date()
+
+  // Find all users with more than maxDevices active sessions
+  const excessUsers = await db
+    .select({
+      userId: sessions.userId,
+      sessionCount: sql<number>`COUNT(*)`.as('session_count'),
+    })
+    .from(sessions)
+    .where(and(
+      isNull(sessions.revokedAt),
+      gt(sessions.expiresAt, now)
+    ))
+    .groupBy(sessions.userId)
+    .having(sql<number>`COUNT(*) > ${maxDevices}`)
+
+  if (excessUsers.length === 0) {
+    logger.info('No users exceed new maxDevices limit')
+    return { usersAffected: 0, sessionsRevoked: 0 }
+  }
+
+  let sessionsRevoked = 0
+
+  for (const { userId } of excessUsers) {
+    const activeSessions = await db.query.sessions.findMany({
+      where: and(
+        eq(sessions.userId, userId),
+        isNull(sessions.revokedAt),
+        gt(sessions.expiresAt, now)
+      ),
+      orderBy: [sessions.priority, sessions.createdAt],
+      columns: { id: true, priority: true }
+    })
+
+    if (activeSessions.length <= maxDevices) continue
+
+    const excessCount = activeSessions.length - maxDevices
+    const sessionsToRevoke = activeSessions.slice(0, excessCount)
+
+    for (const sessionToRevoke of sessionsToRevoke) {
+      await db.update(sessions)
+        .set({ revokedAt: now })
+        .where(eq(sessions.id, sessionToRevoke.id))
+
+      await db.update(refreshTokens)
+        .set({ revokedAt: now, lastUsedAt: now })
+        .where(and(
+          eq(refreshTokens.sessionId, sessionToRevoke.id),
+          isNull(refreshTokens.revokedAt)
+        ))
+
+      forceLogoutSession(sessionToRevoke.id, 'Session evicted (max devices config changed)')
+      sessionsRevoked++
+    }
+  }
+
+  logger.info(
+    { usersAffected: excessUsers.length, sessionsRevoked, newMaxDevices: maxDevices },
+    'Global maxDevices enforcement complete'
+  )
+
+  return { usersAffected: excessUsers.length, sessionsRevoked }
 }
 
 async function createLoginSession(
@@ -590,9 +660,8 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
     const user = result.user
     await recordLoginAttempt(request.ip, true)
 
-    // Enforce up to 5 active devices to allow mobile + desktop + tablet
-    // Any pre-existing devices beyond this limit are targeted by evictOldestSession
-    await evictOldestSession(user.id, 5, request.ip)
+    const config = getConfig()
+    await evictOldestSession(user.id, config.session.maxDevices, request.ip)
 
     const deviceInfo = extractDeviceInfo(request)
     let sessionPriority = calculateSessionPriority(deviceInfo, request.ip)
@@ -628,6 +697,9 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
       mediaPermission: user.mediaPermission ?? false,
       emailNotifyOnMessage: user.emailNotifyOnMessage ?? true
     })
+
+    // Notify other sessions of the new login so their session list updates in real-time
+    try { getIO().to(`user:${user.id}`).emit('session:created', { sessionId }) } catch { /* socket not ready */ }
 
     return sendOk(reply, {
       token,
@@ -965,6 +1037,7 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
     }
 
     forceLogoutSession(sessionId, 'Session revoked')
+    try { getIO().to(`user:${user.id}`).emit('session:revoked', { sessionId }) } catch { /* socket not ready */ }
 
     return sendOk(reply, { message: 'Session revoked' })
   })
@@ -1024,6 +1097,7 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
     for (const session of otherSessions) {
       forceLogoutSession(session.id, 'All other sessions revoked')
     }
+    try { getIO().to(`user:${user.id}`).emit('session:revoked', { sessionId: 'all' }) } catch { /* socket not ready */ }
 
     return sendOk(reply, { message: 'All other sessions revoked', revokedCount: otherSessions.length })
   })

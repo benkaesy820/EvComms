@@ -4,7 +4,8 @@ import { conversations as api } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { useAuthStore } from '@/stores/authStore'
 import { toast } from '@/components/ui/sonner'
-import type { Message } from '@/lib/schemas'
+import type { Message, MessageStatus } from '@/lib/schemas'
+import { QueryClient } from '@tanstack/react-query'
 
 export function useConversation() {
   const user = useAuthStore((s) => s.user)
@@ -65,7 +66,7 @@ export function useConversation() {
   })
 }
 
-export function useAdminConversations(archived = false) {
+export function useAdminConversations(archived = false, options?: { enabled?: boolean }) {
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
 
@@ -78,8 +79,6 @@ export function useAdminConversations(archived = false) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => {
       if (!lastPage || !lastPage.hasMore) return undefined
-      // Prefer the composite nextCursor returned by the server (prevents duplicate
-      // waiting-tier rows on Load More). Fall back to lastMessageAt for old responses.
       if (lastPage.nextCursor) return lastPage.nextCursor
       const convs = lastPage.conversations
       if (!Array.isArray(convs) || convs.length === 0) return undefined
@@ -87,7 +86,7 @@ export function useAdminConversations(archived = false) {
       if (!last || last.lastMessageAt == null) return undefined
       return String(last.lastMessageAt)
     },
-    enabled: !!user && isAdmin,
+    enabled: options?.enabled !== undefined ? (!!user && options.enabled) : !!user && isAdmin,
     staleTime: 0,
   })
 }
@@ -106,7 +105,7 @@ export function useMessages(conversationId: string | undefined) {
       if (result.messages) {
         result.messages = result.messages.map((msg, i) => ({
           ...msg,
-          id: msg.id || `temp-${Date.now()}-${i}`,
+          id: msg.id || `temp-${crypto.randomUUID()}-${i}`,
           senderId: msg.senderId || 'unknown',
           type: msg.type || 'TEXT',
           status: msg.status || 'SENT',
@@ -195,7 +194,7 @@ export function useSendMessage(conversationId: string | undefined) {
             const cache = queryClient.getQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }> }>(['messages', cid])
             const stillPending = cache?.pages.some((p) => p.messages.some((m) => m.id === tempId))
             if (stillPending) {
-              markMessageFailed(queryClient as any, cid, tempId)
+              markMessageFailed(queryClient, cid, tempId)
               toast.error('Message failed to send. Tap to retry.')
             }
           }, 8000)
@@ -228,7 +227,7 @@ export function useSendMessage(conversationId: string | undefined) {
           const cache = queryClient.getQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }> }>(['messages', cid])
           const stillPending = cache?.pages.some((p) => p.messages.some((m) => m.id === tempId))
           if (stillPending) {
-            markMessageFailed(queryClient as any, cid, tempId)
+            markMessageFailed(queryClient, cid, tempId)
             toast.error('Message failed to send. Please try again.')
           }
         }, 8000)
@@ -329,7 +328,7 @@ export function useSendMessage(conversationId: string | undefined) {
           failureTimersRef.current.delete(context.tempId)
         }
         if (conversationId) {
-          markMessageFailed(queryClient as any, conversationId, context.tempId)
+          markMessageFailed(queryClient, conversationId, context.tempId)
         }
       }
     },
@@ -340,11 +339,11 @@ export function useSendMessage(conversationId: string | undefined) {
 // Marks an optimistic (temp) message as FAILED in the cache instead of deleting it.
 // The bubble shows a retry affordance so the user can resend.
 function markMessageFailed(
-  queryClient: ReturnType<typeof import('@tanstack/react-query').useQueryClient>,
+  queryClient: QueryClient,
   conversationId: string,
   tempId: string
 ) {
-  queryClient.setQueryData<{ pages: Array<{ success: boolean; messages: import('@/lib/schemas').Message[]; hasMore: boolean }> }>(
+  queryClient.setQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }> }>(
     ['messages', conversationId],
     (old) => {
       if (!old) return old
@@ -353,7 +352,7 @@ function markMessageFailed(
         pages: old.pages.map((page) => ({
           ...page,
           messages: page.messages.map((m) =>
-            m.id === tempId ? { ...m, status: 'FAILED' as any } : m
+            m.id === tempId ? { ...m, status: 'FAILED' as MessageStatus } : m
           ),
         })),
       }

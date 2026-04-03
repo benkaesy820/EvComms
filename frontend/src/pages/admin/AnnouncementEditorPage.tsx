@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn, parseTimestamp } from '@/lib/utils'
-import { useAnnouncement, useCreateAnnouncement, useUpdateAnnouncement } from '@/hooks/useAnnouncements'
+import { useAnnouncement, useCreateAnnouncement, useUpdateAnnouncement, useAnnouncementSocket } from '@/hooks/useAnnouncements'
 import { media as mediaApi } from '@/lib/api'
 import { format } from 'date-fns'
 import type { AnnouncementType, AnnouncementTemplate } from '@/lib/schemas'
@@ -178,6 +178,10 @@ export function AnnouncementEditorPage() {
   const { data: existingData } = useAnnouncement(isEdit ? id : undefined)
   const existing = existingData?.announcement ?? undefined
 
+  // Keep this editor's cache entry live so concurrent changes by other admins
+  // are reflected (e.g. another admin publishes, deactivates, or deletes this announcement).
+  useAnnouncementSocket(isEdit ? id : undefined)
+
   const createAnnouncement = useCreateAnnouncement()
   const updateAnnouncement = useUpdateAnnouncement()
 
@@ -228,8 +232,7 @@ export function AnnouncementEditorPage() {
       setType(existing.type)
       setTemplate(existing.template)
       setIsActive(existing.isActive)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setIsPublic((existing as any).isPublic ?? false)
+      setIsPublic(existing.isPublic ?? false)
       const roles = existing.targetRoles
       if (!roles || roles.length === 0) {
         setTargetAll(true)
@@ -602,7 +605,7 @@ Use bullet points and numbered lists to organize information."
                     type="datetime-local"
                     value={expiresAt}
                     onChange={e => setExpiresAt(e.target.value)}
-                    className="rounded-xl max-w-xs"
+                    className="rounded-xl w-full max-w-xs"
                   />
                   {expiresAt && (
                     <button className="text-[10px] text-destructive hover:underline" onClick={() => setExpiresAt('')}>Clear expiry</button>

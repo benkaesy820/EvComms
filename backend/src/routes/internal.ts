@@ -6,7 +6,7 @@ import { db } from '../db/index.js'
 import { internalMessages, media, auditLogs, internalMessageReactions, internalMessageReads, users } from '../db/schema.js'
 import { requireAdmin, requireUser, sendError, sendOk } from '../middleware/auth.js'
 import { isAdmin, canDeleteMessage } from '../lib/permissions.js'
-import { emitToAdmins } from '../socket/index.js'
+import { emitToAdmins, isUserOnlineGlobally } from '../socket/index.js'
 import { sanitizeText, isValidId, anonymizeIpAddress } from '../lib/utils.js'
 import { logger } from '../lib/logger.js'
 import { serverState, getUserFromCache } from '../state.js'
@@ -245,20 +245,21 @@ export async function internalRoutes(fastify: FastifyInstance) {
     try {
       emitToAdmins('internal:message', { message: payload })
 
-      // Dispatch Push Notifications to all admins who are NOT currently connected via WebSockets
-      // or who are marked as away/offline.
+      // Web Push: cross-instance online check so we don't push to admins
+      // connected on another pod.
       const senderName = cachedSender?.name ?? 'An admin'
       for (const admin of otherAdmins) {
-        // Simple heuristic: if we send to everybody, we rely on the PWA to deduplicate if focused.
-        // It's safer to attempt send to all off-thread admins. (sendPushToUser checks for subscriptions).
-        sendPushToUser(admin.id, {
-          title: `Team Message from ${senderName}`,
-          body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Shared an attachment',
-          data: { url: '/admin/internal', type: 'team' }
-        }).catch(err => logger.error({ err }, 'Internal Push send failed'))
+        const adminOnline = await isUserOnlineGlobally(admin.id)
+        if (!adminOnline) {
+          sendPushToUser(admin.id, {
+            title: `Team Message from ${senderName}`,
+            body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Shared an attachment',
+            data: { url: '/admin/internal', type: 'team' }
+          }).catch(err => logger.error({ err }, 'Internal Push send failed'))
+        }
       }
 
-    } catch { /* socket not initialized */ }
+    } catch (e) { logger.warn({ e }, 'Socket emit failed: internal:message') }
 
     return sendOk(reply, { message: payload })
   })
@@ -279,7 +280,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
           action: 'internal_message.clear_all', entityType: 'internal_message', entityId: 'all'
         })
       })
-      try { emitToAdmins('internal:chat:cleared', { scope: 'all' }) } catch { /* non-fatal */ }
+      try { emitToAdmins('internal:chat:cleared', { scope: 'all' }) } catch (e) { logger.warn({ e }, 'Socket emit failed: internal:chat:cleared') }
     } else {
       // Single UPDATE instead of N+1 loop: append userId to hiddenFor JSON array
       await db.run(sql`
@@ -331,7 +332,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
           action: 'internal_message.delete', entityType: 'internal_message', entityId: id
         })
       })
-      try { emitToAdmins('internal:message:deleted', { id }) } catch { /* */ }
+      try { emitToAdmins('internal:message:deleted', { id }) } catch (e) { logger.warn({ e }, 'Socket emit failed: internal:message:deleted') }
       return sendOk(reply, { success: true, scope: 'all' })
     }
 
@@ -386,7 +387,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
         })
 
       const reaction = { id: reactionId, messageId: id, userId: user.id, emoji, user: { name: userName } }
-      try { emitToAdmins('internal:message:reaction', { type: 'add', reaction }) } catch { /* non-fatal */ }
+      try { emitToAdmins('internal:message:reaction', { type: 'add', reaction }) } catch (e) { logger.warn({ e }, 'Socket emit failed: internal:message:reaction') }
 
       return sendOk(reply, { success: true, reaction })
     } catch (err) {
@@ -422,7 +423,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
     )
 
     if (result.rowsAffected && result.rowsAffected > 0) {
-      try { emitToAdmins('internal:message:reaction', { type: 'remove', reaction: { messageId: id, userId: user.id, emoji: decodedEmoji } }) } catch { /* */ }
+      try { emitToAdmins('internal:message:reaction', { type: 'remove', reaction: { messageId: id, userId: user.id, emoji: decodedEmoji } }) } catch (e) { logger.warn({ e }, 'Socket emit failed: internal:message:reaction:remove') }
     }
 
     return sendOk(reply, { success: true })
@@ -496,7 +497,7 @@ export async function internalRoutes(fastify: FastifyInstance) {
     if (scope === 'all' && succeededCount > 0) {
       try {
         emitToAdmins('internal:messages:bulk_deleted', { ids: ids.filter(id => !failedIds.includes(id)) })
-      } catch { /* non-fatal */ }
+      } catch (e) { logger.warn({ e }, 'Socket emit failed: internal:messages:bulk_deleted') }
     }
 
     return sendOk(reply, {

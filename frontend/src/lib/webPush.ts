@@ -7,7 +7,7 @@
  */
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { notifications } from './api'
 
 // Converts a VAPID base64url public key to an ArrayBuffer.
 // Returning ArrayBuffer (not Uint8Array) is the safest choice:
@@ -40,22 +40,36 @@ export function getNotificationPermission(): NotificationPermission {
 }
 
 let swRegistration: ServiceWorkerRegistration | null = null
+// In-flight promise deduplicator — prevents a second concurrent call from
+// bypassing the `if (swRegistration)` guard before the first await resolves.
+let swRegistrationPromise: Promise<ServiceWorkerRegistration | null> | null = null
 
 /**
- * Register the service worker. Safe to call multiple times — returns the
- * existing registration if already registered.
+ * Register the service worker and wait for it to be fully active.
+ * Safe to call multiple times — returns the cached registration if already done.
+ * Concurrent calls are coalesced into a single in-flight promise so the SW is
+ * never registered twice on cold load.
  */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!isPushSupported()) return null
   if (swRegistration) return swRegistration
+  if (swRegistrationPromise) return swRegistrationPromise  // coalesce concurrent callers
 
-  try {
-    swRegistration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
-    return swRegistration
-  } catch (err) {
-    console.warn('[WebPush] SW registration failed:', err)
-    return null
-  }
+  swRegistrationPromise = (async () => {
+    try {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      swRegistration = await navigator.serviceWorker.ready
+      return swRegistration
+    } catch (err) {
+      console.warn('[WebPush] SW registration failed:', err)
+      return null
+    } finally {
+      // Clear so retries work after failure (don't cache a failed promise)
+      swRegistrationPromise = null
+    }
+  })()
+
+  return swRegistrationPromise
 }
 
 /**
@@ -68,16 +82,13 @@ export async function subscribeToPush(): Promise<boolean> {
   const reg = await registerServiceWorker()
   if (!reg) return false
 
-  // Request permission — browsers only allow this in response to a user gesture
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') return false
 
   try {
     const existingSubscription = await reg.pushManager.getSubscription()
     if (existingSubscription) {
-      // Already subscribed — ensure the server has this subscription
-      await sendSubscriptionToServer(existingSubscription)
-      return true
+      return sendSubscriptionToServer(existingSubscription)
     }
 
     const key = urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY)
@@ -86,8 +97,7 @@ export async function subscribeToPush(): Promise<boolean> {
       applicationServerKey: key,
     })
 
-    await sendSubscriptionToServer(subscription)
-    return true
+    return sendSubscriptionToServer(subscription)
   } catch (err) {
     console.warn('[WebPush] Subscribe failed:', err)
     return false
@@ -105,10 +115,13 @@ export async function unsubscribeFromPush(): Promise<boolean> {
 
   try {
     const subscription = await reg.pushManager.getSubscription()
-    if (!subscription) return true // Already unsubscribed
+    if (!subscription) return true
 
-    await deleteSubscriptionFromServer(subscription)
+    // Browser-unsubscribe first. If this fails we abort so the server record
+    // stays intact — avoids a ghost subscription where the browser still holds
+    // the endpoint but the DB has no matching record.
     await subscription.unsubscribe()
+    await deleteSubscriptionFromServer(subscription)
     return true
   } catch (err) {
     console.warn('[WebPush] Unsubscribe failed:', err)
@@ -118,37 +131,48 @@ export async function unsubscribeFromPush(): Promise<boolean> {
 
 /**
  * Check if the current browser is actively subscribed.
+ *
+ * Uses the cached swRegistration or navigator.serviceWorker.ready directly —
+ * does NOT go through registerServiceWorker() which would trigger a full
+ * SW registration path just to read the push subscription state.
  */
 export async function getActiveSubscription(): Promise<PushSubscription | null> {
   if (!isPushSupported()) return null
-  const reg = await registerServiceWorker()
-  if (!reg) return null
-  return reg.pushManager.getSubscription()
+  try {
+    // Prefer cached registration; fall back to the browser's ready promise.
+    const reg = swRegistration ?? await navigator.serviceWorker.ready
+    return reg.pushManager.getSubscription()
+  } catch {
+    return null
+  }
 }
 
 // ──────────────────────────────────────────────────────────
 // Internal helpers
 // ──────────────────────────────────────────────────────────
 
-async function sendSubscriptionToServer(subscription: PushSubscription): Promise<void> {
+async function sendSubscriptionToServer(subscription: PushSubscription): Promise<boolean> {
   const raw = subscription.toJSON()
-  await fetch(`${API_BASE}/api/notifications/subscribe`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      endpoint: raw.endpoint,
-      keys: { p256dh: raw.keys?.p256dh, auth: raw.keys?.auth },
-    }),
-  })
+  try {
+    const res = await notifications.subscribe({
+      endpoint: raw.endpoint!,
+      keys: { p256dh: raw.keys?.p256dh!, auth: raw.keys?.auth! },
+    })
+    if (!res.success) throw new Error('Update failed')
+    console.log('[WebPush] Subscription saved to server')
+    return true
+  } catch (err) {
+    console.error('[WebPush] Failed to save subscription:', err)
+    return false
+  }
 }
 
 async function deleteSubscriptionFromServer(subscription: PushSubscription): Promise<void> {
   const raw = subscription.toJSON()
-  await fetch(`${API_BASE}/api/notifications/unsubscribe`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: raw.endpoint }),
-  })
+  try {
+    await notifications.unsubscribe({ endpoint: raw.endpoint! })
+    console.log('[WebPush] Subscription removed from server')
+  } catch (err) {
+    console.warn('[WebPush] Failed to remove subscription from server:', err)
+  }
 }

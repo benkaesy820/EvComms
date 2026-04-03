@@ -19,13 +19,19 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       closeButton
       duration={4000}
-      gap={8}
+      gap={10}
+      offset={16}
+      position="top-center"
       icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <OctagonXIcon className="size-4" />,
-        loading: <LeafLogo className="size-4 animate-spin" />,
+        success: <CircleCheckIcon className="size-4 shrink-0 text-emerald-500" />,
+        info: <InfoIcon className="size-4 shrink-0 text-blue-500" />,
+        warning: <TriangleAlertIcon className="size-4 shrink-0 text-amber-500" />,
+        error: <OctagonXIcon className="size-4 shrink-0 text-destructive" />,
+        loading: <LeafLogo className="size-4 animate-spin text-primary" />,
+      }}
+      toastOptions={{
+        className:
+          "group-[.toaster]:border-border/60 group-[.toaster]:bg-popover/95 group-[.toaster]:backdrop-blur-xl group-[.toaster]:shadow-lg group-[.toaster]:rounded-xl group-[.toaster]:px-4 group-[.toaster]:py-3",
       }}
       style={
         {
@@ -44,7 +50,6 @@ const Toaster = ({ ...props }: ToasterProps) => {
   )
 }
 
-// Export a custom toast strictly typed or just the base one to be used throughout the app
 export const toast = sonnerToast
 
 export { Toaster }

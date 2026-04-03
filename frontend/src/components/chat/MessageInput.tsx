@@ -348,22 +348,25 @@ export function MessageInput({ conversationId, onSend, disabled, linkedAnnouncem
     }
 
     const announcementId = linkedAnnouncement?.id
-    if (attachment?.mediaId) {
-      onSend({ type: attachment.type, content: trimmed || undefined, mediaId: attachment.mediaId, replyToId, announcementId })
-      clearAttachment()
-    } else {
-      onSend({ type: 'TEXT', content: trimmed, replyToId, announcementId })
+    try {
+      if (attachment?.mediaId) {
+        onSend({ type: attachment.type, content: trimmed || undefined, mediaId: attachment.mediaId, replyToId, announcementId })
+        clearAttachment()
+      } else {
+        onSend({ type: 'TEXT', content: trimmed, replyToId, announcementId })
+      }
+
+      clearReply()
+      onClearAnnouncement?.()
+      setText('')
+      saveDraft(conversationId, '')
+      stopTyping()
+      textareaRef.current?.focus()
+    } catch {
+      toast.error('Failed to send message')
+    } finally {
+      setTimeout(() => setIsSending(false), 50)
     }
-
-    clearReply()
-    onClearAnnouncement?.()
-    setText('')
-    saveDraft(conversationId, '')
-    stopTyping()
-    textareaRef.current?.focus()
-
-    // Release sending lock next tick after React reconciles
-    setTimeout(() => setIsSending(false), 50)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

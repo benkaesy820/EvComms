@@ -10,6 +10,7 @@ import { anonymizeIpAddress } from '../lib/utils.js'
 import { logger } from '../lib/logger.js'
 import { getIO } from '../socket/index.js'
 import { env } from '../lib/env.js'
+import { enforceMaxDevicesGlobally } from '../auth/index.js'
 
 const subsidiarySchema = z.object({
   id: z.string().min(1).max(26),
@@ -82,7 +83,9 @@ const storageSchema = z.object({
 export async function configRoutes(fastify: FastifyInstance) {
   const rateLimiters = createRateLimiters()
 
-  fastify.get('/', { preHandler: rateLimiters.api }, async (_request, reply) => {
+  // Config GET is read-only and consumed by 28+ frontend components on mount.
+  // Rate limiting here causes 429 cascades on initial load / server restart.
+  fastify.get('/', async (_request, reply) => {
     const config = getConfig()
     const brand = getBrand()
     return reply.send({
@@ -287,6 +290,11 @@ export async function configRoutes(fastify: FastifyInstance) {
         })
       }
       logger.info({ userId: request.user?.id }, 'Security config updated')
+      // Enforce new maxDevices across all users immediately
+      if (result.data.session?.maxDevices !== undefined) {
+        const enforced = await enforceMaxDevicesGlobally()
+        logger.info(enforced, 'maxDevices enforcement after config change')
+      }
       try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true })
     } catch (error) {

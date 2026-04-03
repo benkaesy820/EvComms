@@ -126,7 +126,7 @@ export function useReportStatusListener() {
     if (!socket) return
 
     const onReportReviewed = (data: { userId: string; reportIds: string[]; reviewedBy: string; reviewedAt: number; autoReviewed: boolean }) => {
-      // Optimistically update ALL filter caches so the badge clears immediately
+      // Optimistically update flat query caches (useReports)
       for (const filterKey of ['PENDING', 'ALL', 'REVIEWED'] as const) {
         qc.setQueryData<ReportsResponse>(['reports', filterKey], (old) => {
           if (!old) return old
@@ -139,6 +139,29 @@ export function useReportStatusListener() {
             pendingCount: Math.max(0, old.pendingCount - data.reportIds.length),
           }
         })
+      }
+
+      // Also patch infinite query caches (useInfiniteReports used by ReportsPage).
+      // Without this the pending-count badge and card list on ReportsPage don't
+      // update optimistically — they'd wait for the background invalidation refetch.
+      for (const filterKey of ['PENDING', 'ALL', 'REVIEWED'] as const) {
+        qc.setQueryData<{ pages: ReportsResponse[]; pageParams: unknown[] }>(
+          ['reports', 'infinite', filterKey],
+          (old) => {
+            if (!old) return old
+            const isRemovedFromPending = filterKey === 'PENDING'
+            return {
+              ...old,
+              pages: old.pages.map((page) => ({
+                ...page,
+                reports: isRemovedFromPending
+                  ? page.reports.filter((r) => !data.reportIds.includes(r.id))
+                  : page.reports.map((r) => data.reportIds.includes(r.id) ? { ...r, status: 'REVIEWED' as const } : r),
+                pendingCount: Math.max(0, page.pendingCount - data.reportIds.length),
+              })),
+            }
+          }
+        )
       }
 
       // Invalidate all report queries to trigger refetch

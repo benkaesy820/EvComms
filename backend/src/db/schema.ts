@@ -201,6 +201,9 @@ export const conversations = sqliteTable('conversations', {
   waitingIdx: index('idx_conversations_waiting').on(table.waitingSince)
     .where(sql`${table.waitingSince} IS NOT NULL AND ${table.archivedAt} IS NULL AND ${table.deletedAt} IS NULL`),
 
+  // Assignment engine: filter by subsidiary for pickBestAdmin
+  subsidiaryIdx: index('idx_conversations_subsidiary').on(table.subsidiaryId),
+
   // Idle detection
   lastAdminReplyIdx: index('idx_conversations_last_admin_reply').on(table.lastAdminReplyAt)
     .where(sql`${table.archivedAt} IS NULL AND ${table.deletedAt} IS NULL`),

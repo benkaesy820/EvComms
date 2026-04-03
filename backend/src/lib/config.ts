@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
 import { logger } from './logger.js'
+import { clusterBus } from './events.js'
 
 const brandSchema = z.object({
     siteName: z.string().min(1),
@@ -603,7 +604,6 @@ export function getConfigPath(): string {
 export async function atomicWriteConfig(patch: (cfg: Record<string, unknown>) => void): Promise<void> {
     configWriteLock = configWriteLock
         .catch((err) => {
-            // Log but don't throw - we want to continue with the next operation
             logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Previous config write failed')
         })
         .then(async () => {
@@ -623,7 +623,6 @@ export async function atomicWriteConfig(patch: (cfg: Record<string, unknown>) =>
                 await fs.promises.writeFile(tempPath, JSON.stringify(fullConfig, null, 4))
                 await fs.promises.rename(tempPath, configPath)
             } catch (err) {
-                // Cleanup temp file on failure
                 try {
                     await fs.promises.unlink(tempPath)
                 } catch {
@@ -635,7 +634,27 @@ export async function atomicWriteConfig(patch: (cfg: Record<string, unknown>) =>
             // Apply immediately to running memory
             const result = configSchema.safeParse(fullConfig)
             if (result.success) {
+                const oldConfig = config
                 config = result.data as AppConfig
+
+                // Detect changed sections by comparing old vs new
+                const sections: (keyof AppConfig)[] = [
+                    'session', 'rateLimit', 'presence', 'storage', 'socket',
+                    'limits', 'features', 'email', 'assignment', 'cache',
+                ]
+                const changed = new Set<string>()
+                for (const section of sections) {
+                    const oldVal = oldConfig ? JSON.stringify(oldConfig[section]) : undefined
+                    const newVal = JSON.stringify(config[section])
+                    if (oldVal !== newVal) changed.add(section)
+                }
+
+                // Broadcast to all subsystems
+                if (changed.size > 0) {
+                    const changePayload = { sections: Array.from(changed), timestamp: Date.now() }
+                    logger.info({ sections: changePayload.sections }, 'Config changed — broadcasting to subsystems')
+                    clusterBus.emit('config:changed', changePayload)
+                }
             } else {
                 throw new Error(`Invalid config after patch: ${result.error.message}`)
             }
@@ -660,6 +679,46 @@ export function loadConfig(): AppConfig {
     return config
 }
 
+/**
+ * Force-reload config from disk and broadcast changes locally.
+ * Used by remote instances when they receive a config:changed event
+ * from serverSideEmit, or for external config file changes.
+ */
+export function reloadConfig(): AppConfig {
+    const configPath = getConfigPath()
+    const configFile = fs.readFileSync(configPath, 'utf-8')
+    const parsed = JSON.parse(configFile)
+
+    const result = configSchema.safeParse(parsed)
+    if (!result.success) {
+        const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+        throw new Error(`Invalid config.json: ${issues}`)
+    }
+
+    const oldConfig = config
+    config = result.data as AppConfig
+
+    // Detect changed sections
+    const sections: (keyof AppConfig)[] = [
+        'session', 'rateLimit', 'presence', 'storage', 'socket',
+        'limits', 'features', 'email', 'assignment', 'cache',
+    ]
+    const changed = new Set<string>()
+    for (const section of sections) {
+        const oldVal = oldConfig ? JSON.stringify(oldConfig[section]) : undefined
+        const newVal = JSON.stringify(config[section])
+        if (oldVal !== newVal) changed.add(section)
+    }
+
+    if (changed.size > 0) {
+        const changePayload = { sections: Array.from(changed), timestamp: Date.now() }
+        logger.info({ sections: changePayload.sections }, 'Config reloaded from disk — broadcasting locally')
+        clusterBus.emit('config:changed', changePayload)
+    }
+
+    return config
+}
+
 export function getConfig(): AppConfig {
     if (!config) {
         return loadConfig()
@@ -674,7 +733,10 @@ export function getBrand(): BrandConfig {
         tagline: 'Your direct line to our team',
         company: '',
         supportEmail: '',
-        logoUrl: undefined
+        logoUrl: undefined,
+        statResponseTime: undefined,
+        statUptime: undefined,
+        statAvailability: undefined
     }
 }
 

@@ -4,12 +4,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Megaphone,
   ThumbsUp, ThumbsDown, Clock, ChevronDown, ChevronUp,
-  ArrowLeft, Shield, AlertTriangle,
+  ArrowLeft, AlertTriangle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn, formatRelativeTime } from '@/lib/utils'
+import { cn, formatRelativeTime, getInitials } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/empty-state'
 import { StaticLayout } from '@/components/layout/StaticLayout'
 import { usePublicAnnouncements } from '@/hooks/useAnnouncements'
@@ -31,15 +31,6 @@ function getGradient(type: string) {
     case 'IMPORTANT': return 'hsl(0, 72%, 51%), hsl(0, 84%, 65%)'
     default: return 'hsl(217, 91%, 60%), hsl(217, 91%, 75%)'
   }
-}
-
-function AuthorAvatar({ name }: { name: string }) {
-  const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
-  return (
-    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-[9px] font-bold text-primary shrink-0">
-      {initials}
-    </div>
-  )
 }
 
 function AnnouncementCard({
@@ -76,10 +67,10 @@ function AnnouncementCard({
               <img
                 src={announcement.mediaAttachment.cdnUrl}
                 alt={announcement.mediaAttachment.filename}
-                className="w-full h-44 object-cover"
+                className="w-full h-32 sm:h-44 object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-              <div className="absolute bottom-3 left-4">
+              <div className="absolute bottom-2 left-3 flex items-center gap-1.5">
                 <Badge variant="outline" className="text-[10px] bg-black/30 backdrop-blur-sm border-white/20 text-white">
                   {config.label}
                 </Badge>
@@ -87,19 +78,15 @@ function AnnouncementCard({
             </div>
           )}
 
-          <div className="p-4">
+          <div className="p-3 sm:p-4">
             {/* Header — no hero media */}
             {!hasMedia && (
-              <div className="flex items-center gap-2 flex-wrap mb-2">
-                <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', config.bg)}>
-                  <Icon className={cn('h-4 w-4', config.color)} />
+              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', config.bg)}>
+                  <Icon className={cn('h-3.5 w-3.5', config.color)} />
                 </div>
                 <Badge variant="outline" className={cn('text-[10px]', config.color, config.border)}>
                   {config.label}
-                </Badge>
-                <Badge variant="secondary" className="text-[10px] gap-1">
-                  <Shield className="h-3 w-3" />
-                  Public
                 </Badge>
               </div>
             )}
@@ -110,7 +97,7 @@ function AnnouncementCard({
             </h3>
 
             {/* Content */}
-            <div className="mt-1.5">
+            <div className="mt-1">
               <div className={cn(
                 'text-sm text-muted-foreground leading-relaxed prose prose-sm dark:prose-invert prose-p:my-0 prose-headings:my-0',
                 !expanded && isLong && 'line-clamp-3',
@@ -136,26 +123,28 @@ function AnnouncementCard({
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between mt-4 pt-3 border-t">
+            <div className="flex items-center justify-between mt-3 pt-2.5 border-t gap-2">
               {/* Votes (read-only for public) */}
-              <div className="flex items-center gap-1">
-                <span className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-muted-foreground bg-muted/50">
-                  <ThumbsUp className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground bg-muted/50">
+                  <ThumbsUp className="h-3 w-3" />
                   <span className="tabular-nums">{announcement.upvoteCount}</span>
                 </span>
-                <span className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-muted-foreground bg-muted/50">
-                  <ThumbsDown className="h-3.5 w-3.5" />
+                <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground bg-muted/50">
+                  <ThumbsDown className="h-3 w-3" />
                   <span className="tabular-nums">{announcement.downvoteCount}</span>
                 </span>
               </div>
 
-              {/* Meta */}
-              <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <AuthorAvatar name={authorName} />
-                  {authorName}
+              {/* Meta — compact on mobile */}
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground min-w-0">
+                <span className="flex items-center gap-1 min-w-0">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[8px] font-bold text-primary">
+                    {getInitials(authorName)}
+                  </span>
+                  <span className="truncate hidden sm:inline">{authorName}</span>
                 </span>
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1 shrink-0">
                   <Clock className="h-3 w-3" />
                   {formatRelativeTime(announcement.createdAt)}
                 </span>
@@ -170,14 +159,20 @@ function AnnouncementCard({
 
 function CardSkeleton() {
   return (
-    <div className="p-4 space-y-3">
+    <div className="space-y-3">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="rounded-xl border overflow-hidden">
-          <Skeleton className="h-44 w-full" />
-          <div className="p-4 space-y-2">
-            <Skeleton className="h-4 w-48" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-32" />
+          <div className="flex">
+            <div className="w-1 bg-muted/30" />
+            <div className="flex-1 p-3 sm:p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-7 w-7 rounded-lg" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-1/2" />
+            </div>
           </div>
         </div>
       ))}
@@ -201,32 +196,29 @@ export function PublicAnnouncementsPage() {
 
   return (
     <StaticLayout>
-      <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 py-8 sm:py-12">
-        {/* Back button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mb-6 -ml-2 gap-1.5"
-          onClick={() => navigate(-1)}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
-
-        {/* Page header */}
-        <div className="flex items-start justify-between flex-wrap gap-4 mb-8">
+      <div className="mx-auto w-full max-w-3xl px-3 sm:px-6 py-4 sm:py-8">
+        {/* Back button + header — compact on mobile */}
+        <div className="flex items-start justify-between flex-wrap gap-3 mb-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-              <Megaphone className="h-6 w-6 text-primary" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 sm:hidden"
+              onClick={() => navigate(-1)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+              <Megaphone className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-extrabold tracking-tight">Announcements</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">Announcements</h1>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
                 Latest updates from {company}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {importantCount > 0 && (
               <Badge variant="destructive" className="text-[10px]">
                 {importantCount} important
@@ -244,6 +236,17 @@ export function PublicAnnouncementsPage() {
             )}
           </div>
         </div>
+
+        {/* Desktop back button */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="hidden sm:flex mb-4 -ml-2 gap-1.5"
+          onClick={() => navigate(-1)}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </Button>
 
         {/* Content */}
         {isLoading ? (
@@ -268,7 +271,7 @@ export function PublicAnnouncementsPage() {
             subtitle="Check back later for updates from our team"
           />
         ) : (
-          <div className="space-y-4 pb-8">
+          <div className="space-y-3 pb-8">
             {(items as PublicAnnouncement[]).map((ann) => (
               <AnnouncementCard key={ann.id} announcement={ann} onView={(id) => navigate(`/announcements/${id}`)} />
             ))}

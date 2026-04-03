@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
-import { connectSocket, disconnectSocket, getSocket } from '@/lib/socket'
+import { connectSocket, disconnectSocket, getSocket, getActiveFocusedConversation } from '@/lib/socket'
 import type { Message } from '@/lib/schemas'
 import { auth as authApi } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
 import { audio } from '@/lib/audio'
+import { showOsNotification } from '@/lib/notify'
+import { prependMessage, softDeleteMessage, markMessagesRead, applyReaction } from '@/lib/messageCache'
+import type { MessagesCache } from '@/lib/messageCache'
+
 
 export function useSocketConnection() {
   const user = useAuthStore((s) => s.user)
@@ -64,7 +68,8 @@ export function useSocketConnection() {
           socket.connect()
         } catch (refreshErr) {
           // If refresh fails, the session is truly dead
-          toast.error('Session expired. Please login again.')
+          audio.playError()
+          toast.error('Session expired. Please login again.', { id: 'session-expired' })
           resetRef.current()
         }
       }
@@ -72,94 +77,130 @@ export function useSocketConnection() {
 
     socket.on('auth_error', () => {
       audio.playError()
-      toast.error('Session expired. Please login again.')
+      // Use a stable toast id so this never stacks with the connect_error path above
+      toast.error('Session expired. Please login again.', { id: 'session-expired' })
       resetRef.current()
     })
 
-    socket.on('session:revoked', (data) => {
-      audio.playError()
-      toast.error(data.reason || 'Session has been revoked')
-      resetRef.current()
-    })
+
 
     socket.on('force_logout', (data) => {
       audio.playError()
       toast.error(data.reason || 'You have been logged out')
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
       resetRef.current()
+    })
+
+    socket.on('session:created', () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    })
+
+    socket.on('session:revoked', () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    })
+
+    socket.on('session:expired', () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
     })
 
     socket.on('message:new', (data) => {
       const msg = data.message
       const currentUser = useAuthStore.getState().user
 
-      // Sound and intelligent Notification logic
+      // ── Sound & Toast decision matrix ────────────────────────────────────────
+      // This is the SINGLE place that decides sound + toast for incoming messages.
+      // Page-level handlers (ChatPage, ConversationsPage) only update their caches.
+      //
+      // Scenarios:
+      //   1. Actively viewing this exact chat (tab focused, on chat page/admin conv) → playPop only
+      //   2. On the chat/admin page but not focused on this thread → playDing only (sidebar badge shows)
+      //   3. Completely elsewhere (Settings, Users, etc.) → playDing + toast with "View" action
       if (currentUser && msg.senderId !== currentUser.id) {
         const isUserOnChatPage = currentUser.role === 'USER' && window.location.pathname.includes('/chat')
-        const isAdminOnChatPage = currentUser.role !== 'USER' && window.location.pathname === '/admin'
-        const isOnChatPage = isUserOnChatPage || isAdminOnChatPage
+        const isAdminOnAdminPage = currentUser.role !== 'USER' && window.location.pathname.startsWith('/admin')
+        const isOnChatPage = isUserOnChatPage || isAdminOnAdminPage
 
         const isFocusingThisChat = document.hasFocus() && isOnChatPage && (
           currentUser.role === 'USER' ||
-          localStorage.getItem('admin-selected-conversation') === msg.conversationId
+          getActiveFocusedConversation() === msg.conversationId
         )
 
+        const preview = msg.content
+          ? (msg.content.length > 80 ? msg.content.slice(0, 80) + '…' : msg.content)
+          : 'Sent an attachment'
+        const senderName = msg.sender?.name || 'New Message'
+        const targetUrl = currentUser.role === 'USER' ? '/home/chat' : '/admin'
+
         if (isFocusingThisChat) {
-          // Soft interaction sound - actively looking at this exact thread
+          // Scenario 1: user is actively watching this exact thread → soft pop
           audio.playPop()
         } else if (isOnChatPage) {
-          // On the chat page but looking elsewhere (or unfocused). No toast to prevent clutter,
-          // because the sidebar will naturally show the new unread badge. Just play the sound.
+          // Scenario 2: tab visible but different thread → ding, no toast
           audio.playDing()
+          // OS banner covers the case where the window is visible but they're
+          // looking at a different monitor / app (document.hidden check inside)
+          showOsNotification(senderName, preview, `conv:${msg.conversationId}`, targetUrl)
         } else {
-          // Completely off the chat page (e.g., Settings, Users list)
-          // Background/unfocused sound + clickable Toast
+          // Scenario 3: completely elsewhere → ding + toast + OS banner
           audio.playDing()
-          toast(msg.sender?.name || 'New Message', {
-            description: msg.content ? (msg.content.length > 50 ? msg.content.slice(0, 50) + '...' : msg.content) : 'Sent an attachment',
+          toast(senderName, {
+            description: preview,
             action: {
               label: 'View',
               onClick: () => {
-                if (currentUser.role === 'USER') {
-                  window.location.href = '/home/chat'
-                } else {
+                if (currentUser.role !== 'USER') {
                   localStorage.setItem('admin-selected-conversation', msg.conversationId)
-                  window.location.href = '/admin'
                 }
+                window.location.href = targetUrl
               }
             }
           })
+          showOsNotification(senderName, preview, `conv:${msg.conversationId}`, targetUrl)
         }
       }
 
+      // ── Cache updates ────────────────────────────────────────────────────────
+      // NOTE: ChatPage registers its OWN message:new handler that also updates
+      // ['messages', conversationId]. To avoid double-prepending when ChatPage is
+      // mounted, we skip the messages cache update here — ChatPage's local handler
+      // covers it. We ONLY update the lightweight ['conversation'] unread-count cache
+      // here, which ChatPage does NOT update on message:new.
       if (currentUser?.role === 'USER' && msg.senderId !== currentUser.id) {
-        queryClient.setQueryData<{ success: boolean; conversation: { unreadCount: number; lastMessageAt: number | null;[key: string]: unknown } | null }>(['conversation'],
-          (old) => {
-            if (!old?.conversation) return old
-            return { ...old, conversation: { ...old.conversation, unreadCount: (old.conversation.unreadCount ?? 0) + 1, lastMessageAt: Date.now() } }
-          }
+        // Only bump the unread badge when the user is NOT actively looking at the chat.
+        // When focused, useVisibilityMarkRead fires and the server resets unreadCount to 0.
+        const isActivelyViewing = window.location.pathname.includes('/chat') && document.hasFocus()
+        if (!isActivelyViewing) {
+          queryClient.setQueryData<{ success: boolean; conversation: { unreadCount: number; lastMessageAt: number | null;[key: string]: unknown } | null }>(['conversation'],
+            (old) => {
+              if (!old?.conversation) return old
+              return { ...old, conversation: { ...old.conversation, unreadCount: (old.conversation.unreadCount ?? 0) + 1, lastMessageAt: Date.now() } }
+            }
+          )
+        }
+      }
+
+      // For pages where ChatPage is NOT mounted (e.g. admin on a different admin sub-page),
+      // we still need to keep the messages cache fresh so navigating to the chat feels instant.
+      // We only write if the cache already exists (i.e. the user visited that conversation
+      // previously in this session). prependMessage deduplicates internally.
+      const existingCache = queryClient.getQueryData<MessagesCache>(['messages', msg.conversationId])
+      if (existingCache && existingCache.pages.length > 0) {
+        queryClient.setQueryData<MessagesCache>(
+          ['messages', msg.conversationId],
+          old => prependMessage(old, msg),
         )
       }
-      queryClient.setQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] }>(
-        ['messages', msg.conversationId],
-        (old) => {
-          if (!old || old.pages.length === 0) return old
-          const exists = old.pages.some((p) => p.messages.some((m) => m.id === msg.id))
-          if (exists) return old
-          const firstPage = old.pages[0]
-          return {
-            ...old,
-            pages: [
-              { ...firstPage, messages: [msg, ...firstPage.messages] },
-              ...old.pages.slice(1),
-            ],
-          }
-        },
-      )
     })
 
     socket.on('message:sent', (data) => {
-      // Soft outgoing confirmation sound
-      audio.playPop()
+      // Outgoing confirmation pop — only for messages we sent ourselves.
+      // message:sent is targeted at the emitting socket so this should always
+      // be true, but guard explicitly to prevent accidental double-pops if the
+      // server ever broadcasts to multiple sockets.
+      const currentUser = useAuthStore.getState().user
+      if (currentUser && data.message.senderId === currentUser.id) {
+        audio.playPop()
+      }
 
       const convId = data.message.conversationId
       const tempId = data.tempId
@@ -263,41 +304,16 @@ export function useSocketConnection() {
     })
 
     socket.on('message:deleted', (data) => {
-      queryClient.setQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] }>(
+      queryClient.setQueryData<MessagesCache>(
         ['messages', data.conversationId],
-        (old) => {
-          if (!old) return old
-          return {
-            ...old,
-            pages: old.pages.map((page) => ({
-              ...page,
-              messages: page.messages.map((m) =>
-                m.id === data.messageId ? { ...m, deletedAt: data.deletedAt } : m,
-              ),
-            })),
-          }
-        },
+        old => softDeleteMessage(old, data.messageId, data.deletedAt),
       )
     })
 
     socket.on('messages:read', (data) => {
-      queryClient.setQueryData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] }>(
+      queryClient.setQueryData<MessagesCache>(
         ['messages', data.conversationId],
-        (old) => {
-          if (!old) return old
-          // Mark all SENT messages as READ when recipient reads.
-          return {
-            ...old,
-            pages: old.pages.map((page) => ({
-              ...page,
-              messages: page.messages.map((m) =>
-                m.status === 'SENT'
-                  ? { ...m, status: 'READ' as const, readAt: data.readAt }
-                  : m,
-              ),
-            })),
-          }
-        },
+        old => markMessagesRead(old, data.readAt),
       )
     })
 
@@ -385,7 +401,6 @@ export function useSocketConnection() {
       if (currentUser && currentUser.role !== 'USER' && data.changedBy !== currentUser.id) {
         const isTracking = localStorage.getItem('admin-selected-conversation') === data.conversationId
         if (isTracking) {
-          audio.playDing()
           toast.info('Conversation category was updated by another administrator.')
         }
       }
@@ -411,10 +426,29 @@ export function useSocketConnection() {
     })
 
     socket.on('user_report:new', () => {
-      audio.playDing()
-      // Fire toast immediately regardless of whether UserReportsPage is mounted
-      toast.info('A report has been created from your registration.')
-      queryClient.invalidateQueries({ queryKey: ['user-reports'] })
+      const u = useAuthStore.getState().user
+      if (!u) return
+      if (u.role === 'USER') {
+        // Inform the user their registration created a report
+        audio.playDing()
+        toast.info('A report has been created from your registration.')
+        queryClient.invalidateQueries({ queryKey: ['user-reports'] })
+      } else {
+        // Admin: play sound, show toast with view action, bump badge
+        audio.playDing()
+        toast.info('New user report submitted', {
+          action: {
+            label: 'View',
+            onClick: () => { window.location.href = '/admin/user-reports' }
+          }
+        })
+        // Optimistically increment badge then sync from server
+        queryClient.setQueriesData<{ reports: unknown[]; hasMore: boolean; pendingCount: number }>(
+          { queryKey: ['admin', 'user-reports'] },
+          (old) => old ? { ...old, pendingCount: old.pendingCount + 1 } : old,
+        )
+        queryClient.invalidateQueries({ queryKey: ['admin', 'user-reports'] })
+      }
     })
 
     socket.on('user:media_permission_changed', (data) => {
@@ -436,10 +470,229 @@ export function useSocketConnection() {
     })
 
     socket.on('admin:user_registered', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
       audio.playDing()
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      // Also refresh the separate pending-users list used by the admin dashboard
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users', 'pending'] })
       queryClient.invalidateQueries({ queryKey: ['reports'] })
-      toast.info('New user registered!')
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
+      toast.info('New user registered!', { duration: 6000 })
+    })
+
+    // ── Fix 4: conversation:new + conversation:assigned in global hook ─────────
+    // ConversationsPage also handles these for fine-grained list mutations, but
+    // we MUST also handle them here so the conversations cache stays fresh when
+    // an admin is on any other admin page (Users, Reports, Settings, etc.).
+    socket.on('conversation:new', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'queue'] })
+    })
+
+    socket.on('conversation:assigned', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    })
+
+    // These MUST live in the global hook (not in ConversationsPage) so admins
+    // receive the toast and push-fallback no matter which admin page they are on.
+    socket.on('conversation:assigned_to_you', (data: { conversationId: string; userName: string }) => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      audio.playDing()
+      toast.success(`Assigned to ${data.userName}.`, {
+        duration: 6000,
+        icon: '👤',
+        action: {
+          label: 'View',
+          onClick: () => {
+            localStorage.setItem('admin-selected-conversation', data.conversationId)
+            window.location.href = '/admin'
+          },
+        },
+      })
+      // Keep conversations list fresh for every admin page that renders it
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    })
+
+    socket.on('conversation:unassigned', (data: { conversationId: string; oldAdminId: string; reason: string }) => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      // Only alert the admin who was actually unassigned; SUPER_ADMIN is informed via conversation:removed
+      if (data.oldAdminId !== u.id) return
+      audio.playDing()
+      toast.warning('You have been unassigned from a conversation.', { duration: 5000 })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    })
+
+    socket.on('conversation:removed', (data: { conversationId: string; userName: string }) => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      // SUPER_ADMIN: only invalidate caches — conversation:unassigned already toasted the affected admin.
+      // Regular ADMIN: show the named toast (they don't receive conversation:unassigned for others' convs).
+      if (u.role === 'SUPER_ADMIN') {
+        queryClient.invalidateQueries({ queryKey: ['conversations'] })
+        queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      } else {
+        audio.playDing()
+        toast.warning(`You have been unassigned from ${data.userName}'s conversation.`, { duration: 5000 })
+        queryClient.invalidateQueries({ queryKey: ['conversations'] })
+        queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      }
+    })
+
+    // ── Fix 6: user_report:resolved global handler ────────────────────────────
+    // Previously only handled in page-level components; cache never cleared when
+    // those pages were not mounted.
+    socket.on('user_report:resolved', () => {
+      queryClient.invalidateQueries({ queryKey: ['user-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-reports'] })
+    })
+
+    // ── Fix 7: email + storage circuit breaker alerts for super admins ─────────
+    // These events are emitted by the backend but were never handled on the frontend.
+    socket.on('email:circuit_opened', (data: { provider: string; state: string; failures: number; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      audio.playError()
+      toast.error(`Email circuit breaker opened (${data.provider})`, {
+        description: `${data.failures} failures detected. Emails are temporarily paused.`,
+        duration: 0, // persist until dismissed
+      })
+    })
+
+    // Fired when the email circuit breaker recovers (backend parity with storage:circuit_closed).
+    // The backend doesn't emit this yet — handler is wired so it works the moment it does.
+    socket.on('email:circuit_closed', (data: { provider: string; state: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      toast.success(`Email restored (${data.provider})`, {
+        description: 'Circuit breaker closed — emails are flowing normally again.',
+        duration: 8000,
+      })
+    })
+
+    socket.on('email:circuit_recovery', (data: { provider: string; state: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      toast.info(`Email circuit recovering (${data.provider})`, {
+        description: 'Half-open state — testing delivery before fully restoring.',
+        duration: 6000,
+      })
+    })
+
+    socket.on('email:send_failed', (data: { provider: string; recipient: string; error: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      toast.warning(`Email delivery failed (${data.provider})`, {
+        description: `To: ${data.recipient} — ${data.error}`,
+        duration: 8000,
+      })
+    })
+
+    socket.on('database:circuit_opened', (data: { state: string; failures: number; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      audio.playError()
+      toast.error('Database circuit breaker opened', {
+        description: `${data.failures} failures. Some features may be degraded.`,
+        duration: 0,
+      })
+    })
+
+    socket.on('storage:circuit_opened', (data: { state: string; failures: number; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      audio.playError()
+      toast.error('File storage circuit breaker opened', {
+        description: `${data.failures} failures detected. File uploads may be unavailable.`,
+        duration: 0,
+      })
+    })
+
+    socket.on('storage:circuit_closed', (_data: { state: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      toast.success('File storage recovered', { description: 'Circuit breaker closed — uploads are available again.', duration: 6000 })
+    })
+
+    socket.on('storage:circuit_recovery', (_data: { state: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      toast.info('File storage recovering', { description: 'Circuit breaker in half-open state — testing recovery.', duration: 6000 })
+    })
+
+    // ── Media cleanup events — background job status visible to all admins ──────
+    socket.on('cleanup:error', (data: { error: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      audio.playError()
+      toast.error('Media cleanup job failed', {
+        description: data.error || 'Background media cleanup encountered an error.',
+        duration: 0, // persist until dismissed
+      })
+    })
+
+    socket.on('cleanup:media_completed', (data: { cleanedCount: number; failedCount: number; totalProcessed: number; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      if (data.failedCount > 0) {
+        toast.warning(`Media cleanup: ${data.cleanedCount} removed, ${data.failedCount} failed`, {
+          description: `${data.totalProcessed} files processed.`,
+          duration: 8000,
+        })
+      }
+      // Silent success — no toast when everything cleans up fine; only alert on failures
+    })
+
+    socket.on('cleanup:media_failed', (_data: { mediaId: string; error: string; timestamp: number }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      toast.warning('Media file deletion failed', {
+        description: `Could not remove a stale file. Check storage logs.`,
+        duration: 6000,
+      })
+    })
+
+    // ── Fix: admin:reassignment_failures — notify admins of bulk-reassign failures ──
+    socket.on('admin:reassignment_failures', (data: { count: number; reason: string }) => {
+      const u = useAuthStore.getState().user
+      if (!u || (u.role !== 'SUPER_ADMIN' && u.role !== 'ADMIN')) return
+      audio.playError()
+      toast.error(`${data.count} conversation${data.count !== 1 ? 's' : ''} could not be reassigned`, {
+        description: data.reason || 'Some conversations were left unassigned.',
+        duration: 0, // persist until dismissed
+      })
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    })
+
+    // ── Fix #6: global conversation:archived — notify USER even when off ChatPage ──
+    // ChatPage's local handler covers the case when it is mounted. When the user
+    // is elsewhere (e.g. Settings, HomePage), the local handler is gone and they'd
+    // get no feedback at all that their chat was closed by support.
+    socket.on('conversation:archived', (data: { conversationId: string; archivedBy: string; closingNote?: string | null }) => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role !== 'USER') return
+      // Only alert if we're NOT already on ChatPage (ChatPage handles it locally)
+      if (!window.location.pathname.includes('/chat')) {
+        audio.playError()
+        toast.info('Your conversation has been closed by the support team.', {
+          duration: 8000,
+          description: data.closingNote ? `Note: ${data.closingNote}` : undefined,
+          action: {
+            label: 'View',
+            onClick: () => { window.location.href = '/home/chat' },
+          },
+        })
+      }
+      // Always invalidate so ChatPage/HomePage unread badge stays accurate
+      queryClient.invalidateQueries({ queryKey: ['conversation'] })
     })
 
     socket.on('preferences:updated', (data) => {
@@ -461,9 +714,18 @@ export function useSocketConnection() {
       } else {
         queryClient.invalidateQueries({ queryKey: ['announcements'] })
       }
+      // Keep the public (unauthenticated) cache in sync too
+      queryClient.invalidateQueries({ queryKey: ['announcements', 'public'] })
       if (data.announcement?.title) {
         audio.playAnnouncement()
         toast.info(`📢 ${data.announcement.title}`)
+        // title = actual announcement title, body = short prompt to read it
+        showOsNotification(
+          `📢 ${data.announcement.title}`,
+          'Tap to read the full announcement.',
+          `announcement:${data.announcement.id}`,
+          '/home/announcements'
+        )
       }
     })
 
@@ -479,6 +741,7 @@ export function useSocketConnection() {
         },
       )
       queryClient.removeQueries({ queryKey: ['announcement', data.announcementId] })
+      queryClient.invalidateQueries({ queryKey: ['announcements', 'public'] })
     })
 
     socket.on('announcement:updated', (data) => {
@@ -526,31 +789,26 @@ export function useSocketConnection() {
         ['announcement', ann.id],
         (old) => old ? { ...old, announcement: ann } : old,
       )
+      // Keep public cache in sync (field shapes differ, so invalidate rather than patch)
+      queryClient.invalidateQueries({ queryKey: ['announcements', 'public'] })
+    })
+
+    // ── Fix: announcement:vote:updated — global handler so vote counts update
+    // everywhere, not just on the announcements page. useAnnouncementSocket handles
+    // the detail view; this covers list pages and any other mounted consumer.
+    socket.on('announcement:vote:updated', (data: { announcementId: string; upvoteCount: number; downvoteCount: number }) => {
+      const patch = (a: { id: string; upvoteCount: number; downvoteCount: number }) =>
+        a.id === data.announcementId ? { ...a, upvoteCount: data.upvoteCount, downvoteCount: data.downvoteCount } : a
+      queryClient.setQueriesData<{ success: boolean; announcements: Array<{ id: string; upvoteCount: number; downvoteCount: number }> }>(
+        { queryKey: ['announcements'] },
+        (old) => old ? { ...old, announcements: old.announcements.map(patch) } : old,
+      )
     })
 
     socket.on('message:reaction', (data) => {
-      const updatePage = (old: { pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] } | undefined) => {
-        if (!old) return old
-        return {
-          ...old,
-          pages: old.pages.map((page) => ({
-            ...page,
-            messages: page.messages.map((m) => {
-              if (m.id !== data.messageId) return m
-              const reactions = m.reactions ? [...m.reactions] : []
-              if (data.action === 'remove') {
-                const r = data.reaction as { userId: string; emoji: string }
-                return { ...m, reactions: reactions.filter((x) => !(x.userId === r.userId && x.emoji === r.emoji)) }
-              }
-              const newR = data.reaction as import('@/lib/schemas').MessageReaction
-              return { ...m, reactions: reactions.some((x) => x.id === newR.id) ? reactions : [...reactions, newR] }
-            }),
-          })),
-        }
-      }
-      queryClient.setQueriesData<{ pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] }>(
+      queryClient.setQueriesData<MessagesCache>(
         { queryKey: ['messages'] },
-        updatePage,
+        old => applyReaction(old, data.messageId, data.reaction, data.action),
       )
     })
 
@@ -558,6 +816,101 @@ export function useSocketConnection() {
       data.keys.forEach((key) => {
         queryClient.invalidateQueries({ queryKey: [key] })
       })
+    })
+
+    // ── Global: stats:invalidate — keep sidebar badges fresh everywhere ───────
+    // AdminLayout also listens but only when /admin is mounted; this ensures
+    // the badge updates when an admin is on any non-admin page too.
+    socket.on('stats:invalidate', () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
+      // Pending-users list on the admin dashboard and admins roster also change
+      // when a user is approved/rejected/suspended — keep them fresh.
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users', 'pending'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'admins'] })
+    })
+
+    // ── Global: internal:message — toast/sound when not on team-chat page ─────
+    // Previously only in AdminLayout, so admins on the landing page or other
+    // pages missed these notifications entirely.
+    socket.on('internal:message', (data: { message: { senderId: string; content?: string | null } }) => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      if (data.message.senderId === u.id) return
+      queryClient.invalidateQueries({ queryKey: ['internal', 'unread'] })
+      if (!window.location.pathname.startsWith('/admin/internal')) {
+        audio.playDing()
+        toast.info('New team message', {
+          description: data.message.content
+            ? (data.message.content.length > 60 ? data.message.content.slice(0, 60) + '...' : data.message.content)
+            : 'New message in team chat',
+          action: {
+            label: 'View',
+            onClick: () => { window.location.href = '/admin/internal' }
+          }
+        })
+      }
+    })
+
+    // ── Global: dm:message — toast/sound when not on DM page ─────────────────
+    socket.on('dm:message', (data: { message: { senderId: string; content?: string | null }; senderName?: string }) => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      if (data.message.senderId === u.id) return
+      queryClient.invalidateQueries({ queryKey: ['dm', 'unread'] })
+      queryClient.invalidateQueries({ queryKey: ['dm', 'conversations'] })
+      if (!window.location.pathname.startsWith('/admin/dm')) {
+        audio.playDing()
+        toast.info(data.senderName ? `DM from ${data.senderName}` : 'New direct message', {
+          description: data.message.content
+            ? (data.message.content.length > 60 ? data.message.content.slice(0, 60) + '...' : data.message.content)
+            : 'You have a new direct message',
+          action: {
+            label: 'View',
+            onClick: () => { window.location.href = '/admin/dm' }
+          }
+        })
+      }
+    })
+
+    // ── Global: internal chat mutations — keep cache clean when page is unmounted ──
+    // useInternalMessages() registers these same handlers, but only while
+    // InternalChatPage is mounted.  When the page is NOT open, deletions/reactions/
+    // clears would leave the cache stale.  Here we invalidate so the next navigation
+    // to /admin/internal always fetches fresh data.
+    socket.on('internal:message:deleted', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      if (!window.location.pathname.startsWith('/admin/internal')) {
+        queryClient.invalidateQueries({ queryKey: ['internal-messages'] })
+      }
+    })
+
+    socket.on('internal:messages:bulk_deleted', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      if (!window.location.pathname.startsWith('/admin/internal')) {
+        queryClient.invalidateQueries({ queryKey: ['internal-messages'] })
+      }
+    })
+
+    socket.on('internal:chat:cleared', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      if (!window.location.pathname.startsWith('/admin/internal')) {
+        // Wipe cache entirely so navigating to team chat shows an empty, correct state
+        queryClient.setQueryData(['internal-messages'], {
+          pages: [{ success: true, messages: [], hasMore: false }],
+          pageParams: [undefined],
+        })
+      }
+    })
+
+    socket.on('internal:message:reaction', () => {
+      const u = useAuthStore.getState().user
+      if (!u || u.role === 'USER') return
+      if (!window.location.pathname.startsWith('/admin/internal')) {
+        queryClient.invalidateQueries({ queryKey: ['internal-messages'] })
+      }
     })
 
     return () => {

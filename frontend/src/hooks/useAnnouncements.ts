@@ -246,7 +246,7 @@ import { useEffect } from 'react'
 import { getSocket } from '@/lib/socket'
 import type { AnnouncementReaction } from '@/lib/schemas'
 
-interface CommentPayload { announcementId: string; comment: { id: string; content: string; createdAt: Date; user: { id: string; name: string; role: string } } }
+interface CommentPayload { announcementId: string; comment: { id: string; content: string; createdAt: Date | string | number; user: { id: string; name: string; role: string } } }
 interface CommentDeletedPayload { announcementId: string; commentId: string }
 interface ReactionUpdatedPayload { announcementId: string; userId: string; emoji: string }
 interface ReactionRemovedPayload { announcementId: string; userId: string }
@@ -272,9 +272,7 @@ export function useAnnouncementSocket(announcementId?: string) {
         ['announcement-comments', id],
         (old) => {
           if (!old) return old
-          // Deduplicate — the comment poster also receives the socket event,
-          // so the comment may already be in the cache from the mutation's onSuccess.
-          const already = old.comments.some((c) => c.id === (comment as unknown as AnnouncementComment).id)
+          const already = old.comments.some((c) => c.id === comment.id)
           if (already) return old
           return { ...old, comments: [...old.comments, comment as unknown as AnnouncementComment] }
         }
@@ -337,7 +335,6 @@ export function useAnnouncementSocket(announcementId?: string) {
     socket.on('announcement:comment:new', onCommentNew)
     socket.on('announcement:comment:deleted', onCommentDeleted)
     socket.on('announcement:reaction:updated', onReactionUpdated)
-    socket.on('announcement:reaction:added', onReactionUpdated) // same shape, same handler
     socket.on('announcement:reaction:removed', onReactionRemoved)
     socket.on('announcement:vote:updated', onVoteUpdated)
 
@@ -345,7 +342,6 @@ export function useAnnouncementSocket(announcementId?: string) {
       socket.off('announcement:comment:new', onCommentNew)
       socket.off('announcement:comment:deleted', onCommentDeleted)
       socket.off('announcement:reaction:updated', onReactionUpdated)
-      socket.off('announcement:reaction:added', onReactionUpdated)
       socket.off('announcement:reaction:removed', onReactionRemoved)
       socket.off('announcement:vote:updated', onVoteUpdated)
     }

@@ -11,6 +11,7 @@ import { useSocketConnection } from '@/hooks/useSocket'
 import { ApiError } from '@/lib/api'
 import type { Role, Status } from '@/lib/schemas'
 import { LeafLogo } from '@/components/ui/LeafLogo'
+import { isPushSupported, getNotificationPermission, subscribeToPush, registerServiceWorker } from '@/lib/webPush'
 
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const RegisterPage = lazy(() => import('@/pages/RegisterPage').then((m) => ({ default: m.RegisterPage })))
@@ -135,11 +136,44 @@ function SocketProvider({ children }: { children: React.ReactNode }) {
 function AppInit({ children }: { children: React.ReactNode }) {
   const refreshUser = useAuthStore((s) => s.refreshUser)
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  const user = useAuthStore((s) => s.user)
   const reset = useAuthStore((s) => s.reset)
 
   useEffect(() => {
     if (isAuthenticated) refreshUser()
   }, [isAuthenticated, refreshUser])
+
+  // Register the service worker as early as possible so the push subscription
+  // is ready before the permission prompt fires (3 s delay below).
+  useEffect(() => {
+    if (isAuthenticated && user?.status === 'APPROVED' && isPushSupported()) {
+      registerServiceWorker().catch(() => { /* SW registration is best-effort — push notifications will still work via polling */ })
+    }
+  }, [isAuthenticated, user?.status])
+
+  useEffect(() => {
+    if (isAuthenticated && user?.status === 'APPROVED') {
+      if (!isPushSupported()) return
+      
+      if (getNotificationPermission() === 'default' && !localStorage.getItem('push-prompt-dismissed')) {
+        const timer = setTimeout(() => {
+          toast.info('Enable Notifications', {
+            description: 'Stay updated on messages and announcements even when the app is closed.',
+            duration: 15000,
+            action: {
+              label: 'Enable',
+              onClick: async () => {
+                const ok = await subscribeToPush()
+                if (ok) toast.success('Notifications enabled!')
+              }
+            },
+            onDismiss: () => localStorage.setItem('push-prompt-dismissed', 'true'),
+          })
+        }, 3000)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [isAuthenticated, user?.status, user?.id])
 
   useEffect(() => {
     const handleAuthExpired = () => {

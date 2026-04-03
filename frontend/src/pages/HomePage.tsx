@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   MessageSquare, Settings, ArrowRight, Headphones,
   Users, ScrollText, Zap, Megaphone, CheckSquare,
-  Clock, Monitor, Sun, Moon, UserCheck, UserX, Activity, Building2,
+  Clock, Monitor, UserCheck, UserX, Activity,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { useAuthStore } from '@/stores/authStore'
 import { useAnnouncements } from '@/hooks/useAnnouncements'
@@ -56,7 +57,6 @@ function PendingUserCard({ user, onApprove, onReject, isLoading }: {
   onReject: () => void
   isLoading: boolean
 }) {
-  // FIX #23: Show inline confirm step before rejecting — prevents accidental one-click rejection
   const [confirmingReject, setConfirmingReject] = useState(false)
 
   return (
@@ -101,9 +101,8 @@ function StatCard({ label, value, icon: Icon, color }: {
   color: string
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border bg-card/40 p-4 hover:bg-card hover:shadow-lg transition-all">
-      <div className="absolute -right-4 -top-4 h-16 w-16 rounded-full opacity-20 blur-xl transition-transform group-hover:scale-150" />
-      <div className="relative z-10 flex items-center justify-between gap-3">
+    <div className="group rounded-2xl border bg-card/40 p-4 hover:bg-card hover:shadow-lg transition-all">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-2xl font-extrabold tracking-tight tabular-nums">{value}</p>
           <p className="text-[10px] font-semibold text-muted-foreground mt-0.5 tracking-wider uppercase truncate">{label}</p>
@@ -111,6 +110,20 @@ function StatCard({ label, value, icon: Icon, color }: {
         <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1', color)}>
           <Icon className="h-4 w-4" />
         </div>
+      </div>
+    </div>
+  )
+}
+
+function StatSkeleton() {
+  return (
+    <div className="rounded-2xl border bg-card/40 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1 space-y-2">
+          <Skeleton className="h-7 w-16" />
+          <Skeleton className="h-3 w-12" />
+        </div>
+        <Skeleton className="h-10 w-10 rounded-xl" />
       </div>
     </div>
   )
@@ -146,16 +159,15 @@ export function HomePage() {
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const isInsideLayout = location.pathname.startsWith('/home') || location.pathname.startsWith('/admin')
-  const { data: announcementsData } = useAnnouncements()
+  const { data: announcementsData, isLoading: announcementsLoading } = useAnnouncements()
   const activeAnnouncements = announcementsData?.announcements ?? []
   const { data: conversationData } = useConversation()
   const unreadCount = conversationData?.conversation?.unreadCount ?? 0
 
   const { data: configData } = useAppConfig()
   const brand = configData?.brand
-  const subsidiaries = configData?.subsidiaries ?? []
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['admin', 'stats'],
     queryFn: () => adminStats.get(),
     enabled: isAdmin,
@@ -164,15 +176,13 @@ export function HomePage() {
   const stats = statsData?.stats
   const pendingCount = stats?.users?.pending ?? 0
 
-  // For regular admins, compute stats from their own assigned conversations
-  // instead of showing platform-wide numbers which are meaningless to them.
-  const { data: adminConvData } = useAdminConversations(false)
-  const { data: adminArchivedData } = useAdminConversations(true)
-  const myConversations = adminConvData?.pages.flatMap(p => p?.conversations ?? []) ?? []
-  const myAssignedCount = myConversations.length
-  const myUnreadCount = myConversations.filter(c => c && (c.adminUnreadCount ?? 0) > 0).length
-  const myWaitingCount = myConversations.filter(c => c && c.waitingSince).length
-  const myResolvedCount = adminArchivedData?.pages.flatMap(p => p?.conversations ?? []).length ?? 0
+  const { data: adminConvData } = useAdminConversations(false, { enabled: isAdmin })
+  const { data: adminArchivedData } = useAdminConversations(true, { enabled: isAdmin })
+  const myConversations = isAdmin ? (adminConvData?.pages.flatMap(p => p?.conversations ?? []) ?? []) : []
+  const myAssignedCount = isAdmin ? myConversations.length : 0
+  const myUnreadCount = isAdmin ? myConversations.filter(c => c && (c.adminUnreadCount ?? 0) > 0).length : 0
+  const myWaitingCount = isAdmin ? myConversations.filter(c => c && c.waitingSince != null).length : 0
+  const myResolvedCount = isAdmin ? (adminArchivedData?.pages.flatMap(p => p?.conversations ?? []).length ?? 0) : 0
 
   const { data: pendingUsers } = useQuery({
     queryKey: ['admin', 'users', 'pending'],
@@ -220,25 +230,16 @@ export function HomePage() {
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-5xl mx-auto p-3 sm:p-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Main column */}
-            <div className="lg:col-span-2 space-y-4 order-2 lg:order-1">
+            {/* Main column — always first on mobile */}
+            <div className="lg:col-span-2 space-y-4">
               {/* Greeting */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold tracking-tight">
-                    {greeting}, {user?.name?.split(' ')[0]}
-                  </h1>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    {isAdmin ? 'Here\'s your dashboard overview' : 'How can we help you today?'}
-                  </p>
-                </div>
-                <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full">
-                  {hour >= 6 && hour < 18 ? (
-                    <><Sun className="h-3.5 w-3.5 text-amber-500" /> Daytime</>
-                  ) : (
-                    <><Moon className="h-3.5 w-3.5 text-indigo-400" /> Evening</>
-                  )}
-                </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">
+                  {greeting}, {user?.name?.split(' ')[0]}
+                </h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {isAdmin ? 'Here\'s your dashboard overview' : 'How can we help you today?'}
+                </p>
               </div>
 
               {/* Hero CTA */}
@@ -246,7 +247,6 @@ export function HomePage() {
                 onClick={() => navigate(isAdmin ? '/admin' : '/home/chat')}
                 className="w-full group relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary/95 to-primary/80 p-6 text-primary-foreground transition-all hover:shadow-2xl hover:shadow-primary/30 hover:-translate-y-1"
               >
-                {/* Decorative background blobs */}
                 <div className="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-white/10 blur-2xl transition-transform group-hover:scale-150" />
                 <div className="absolute -left-8 -bottom-8 h-32 w-32 rounded-full bg-black/10 blur-xl transition-transform group-hover:scale-150" />
 
@@ -255,7 +255,7 @@ export function HomePage() {
                     <div className="flex h-14 w-14 sm:h-16 sm:w-16 shrink-0 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-md relative ring-1 ring-white/30 shadow-inner">
                       <LeafLogo className="h-7 w-7 sm:h-8 sm:w-8 drop-shadow-md text-white" />
                       {!isAdmin && unreadCount > 0 && (
-                        <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[11px] font-bold ring-4 ring-primary shadow-lg animate-bounce">
+                        <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[11px] font-bold ring-4 ring-primary shadow-lg animate-pulse">
                           {unreadCount > 9 ? '9+' : unreadCount}
                         </span>
                       )}
@@ -313,9 +313,16 @@ export function HomePage() {
               )}
 
               {/* Admin Stats — super admin sees platform-wide; regular admin sees their own workload */}
-              {isAdmin && (isSuperAdmin ? stats : true) && (
+              {isAdmin && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {isSuperAdmin ? (
+                  {statsLoading ? (
+                    <>
+                      <StatSkeleton />
+                      <StatSkeleton />
+                      <StatSkeleton />
+                      <StatSkeleton />
+                    </>
+                  ) : isSuperAdmin ? (
                     <>
                       <StatCard icon={Users} label="Total Users" value={stats?.users?.total ?? 0} color="text-primary bg-primary/10 ring-primary/20" />
                       <StatCard icon={Clock} label="Pending" value={stats?.users?.pending ?? 0} color="text-amber-500 bg-amber-500/10 ring-amber-500/20" />
@@ -334,7 +341,28 @@ export function HomePage() {
               )}
 
               {/* Announcements */}
-              {activeAnnouncements.length > 0 && (
+              {announcementsLoading ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Megaphone className="h-4 w-4 text-primary" />
+                    <h2 className="text-sm font-bold">Latest Announcements</h2>
+                  </div>
+                  <div className="space-y-2">
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <div key={i} className="rounded-xl border p-3.5 space-y-2">
+                        <div className="flex items-start gap-3">
+                          <Skeleton className="h-9 w-9 rounded-xl shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <Skeleton className="h-4 w-3/4" />
+                            <Skeleton className="h-3 w-full" />
+                            <Skeleton className="h-3 w-1/2" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : activeAnnouncements.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -358,8 +386,8 @@ export function HomePage() {
               )}
             </div>
 
-            {/* Sidebar column */}
-            <div className="space-y-4 order-1 lg:order-2">
+            {/* Sidebar column — pushed to bottom on mobile */}
+            <div className="space-y-4 order-last">
               {/* Quick Actions */}
               <div className="rounded-2xl border bg-card overflow-hidden">
                 <div className="p-3 border-b">
@@ -423,36 +451,6 @@ export function HomePage() {
                 </div>
               )}
 
-              {/* My Workload — regular admins get a summary of their own queue instead of platform-wide breakdown */}
-              {isAdmin && !isSuperAdmin && (
-                <div className="rounded-2xl border bg-card p-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Activity className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-bold">My Workload</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {[
-                      { label: 'Assigned', value: myAssignedCount, color: 'bg-primary' },
-                      { label: 'Waiting for reply', value: myWaitingCount, color: 'bg-amber-500' },
-                      { label: 'Unread messages', value: myUnreadCount, color: 'bg-blue-500' },
-                    ].map(({ label, value, color }) => (
-                      <div key={label}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-muted-foreground">{label}</span>
-                          <span className="text-xs font-medium tabular-nums">{value}</span>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className={cn('h-full rounded-full transition-all', color)}
-                            style={{ width: myAssignedCount > 0 ? `${Math.min(100, (value / myAssignedCount) * 100)}%` : '0%' }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Conversation status for users */}
               {!isAdmin && (
                 <div className="rounded-2xl border bg-card overflow-hidden">
@@ -498,34 +496,6 @@ export function HomePage() {
                         </button>
                       </div>
                     )}
-                  </div>
-                </div>
-              )}
-
-              {/* Subsidiaries — only useful for super admins (can navigate to filtered conversations) and end users */}
-              {subsidiaries.length > 0 && (isSuperAdmin || !isAdmin) && (
-                <div className="rounded-2xl border bg-card overflow-hidden">
-                  <div className="p-3 border-b flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-bold">Our Subsidiaries</h3>
-                  </div>
-                  <div className="divide-y">
-                    {subsidiaries.map(sub => (
-                      <button
-                        key={sub.id}
-                        onClick={() => navigate(isAdmin ? '/admin' : '/home/chat', { state: { subsidiaryId: sub.id } })}
-                        className="w-full text-left flex items-center gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors group"
-                      >
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <Building2 className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold truncate">{sub.name}</p>
-                          {sub.description && <p className="text-[10px] text-muted-foreground truncate">{sub.description}</p>}
-                        </div>
-                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all shrink-0" />
-                      </button>
-                    ))}
                   </div>
                 </div>
               )}

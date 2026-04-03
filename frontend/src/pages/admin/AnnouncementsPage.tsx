@@ -103,7 +103,7 @@ function AnnouncementCard({
               <img
                 src={announcement.mediaAttachment.cdnUrl}
                 alt={announcement.mediaAttachment.filename}
-                className="w-full h-44 object-cover"
+                className="w-full h-32 sm:h-44 object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
               <div className="absolute bottom-3 left-4 right-4">
@@ -321,7 +321,7 @@ export function AnnouncementsPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="p-4 border-b shrink-0">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
               <Megaphone className="h-5 w-5 text-primary" />
@@ -338,12 +338,13 @@ export function AnnouncementsPage() {
               <Switch checked={showInactive} onCheckedChange={handleShowInactiveChange} className="scale-75" />
               <span className="flex items-center gap-1">
                 {showInactive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                Show inactive
+                <span className="hidden sm:inline">Show inactive</span>
               </span>
             </label>
             <Button size="sm" className="gap-1.5 rounded-full px-4 shadow-sm" onClick={() => navigate('/admin/announcements/new')}>
               <Plus className="h-4 w-4" />
-              New Announcement
+              <span className="hidden sm:inline">New Announcement</span>
+              <span className="sm:hidden">New</span>
             </Button>
           </div>
         </div>

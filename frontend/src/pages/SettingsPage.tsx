@@ -2,28 +2,31 @@ import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { format } from 'date-fns'
 import { parseTimestamp, getInitials, formatFileSize } from '@/lib/utils'
-import {
-  Monitor, Smartphone, Globe, Trash2, KeyRound, Bell, LogOut,
-  Shield, Palette, Sliders, Zap, Lock, Check, Loader2, Cloud, Pencil,
-  User, Mail, Phone, Image, FileText, FileImage, RefreshCw, Users2, Info,
-} from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import {
+  Monitor, Smartphone, Globe, Trash2, KeyRound, Bell, LogOut,
+  Shield, Zap, Check, Pencil, Cloud, Sliders, Lock, Users2, Info,
+  User, Mail, Phone, Image, FileImage, FileText, RefreshCw, Loader2,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Skeleton } from '@/components/ui/skeleton'
 import { PasswordInput } from '@/components/ui/password-input'
 import { AppHeader } from '@/components/layout/AppHeader'
 import { useAuthStore } from '@/stores/authStore'
-import { auth, preferences, appConfig, users, ApiError, type AppConfig } from '@/lib/api'
+import { auth, preferences, users, appConfig, ApiError, type AppConfig } from '@/lib/api'
 import { changePasswordSchema, type ChangePasswordInput } from '@/lib/schemas'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useTriggerMediaCleanup } from '@/hooks/useUsers'
 import { useAppConfig } from '@/hooks/useConfig'
+import { useTriggerMediaCleanup } from '@/hooks/useUsers'
+import { useWebPush } from '@/hooks/useWebPush'
+import { notifications as notificationsApi } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
 import { LeafLogo } from '@/components/ui/LeafLogo'
-import { useWebPush } from '@/hooks/useWebPush'
+
 import {
   Dialog,
   DialogContent,
@@ -34,14 +37,12 @@ import {
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
-const brandSchema = z.object({
-  siteName: z.string().min(1, 'Required'),
-  tagline: z.string(),
-  company: z.string().min(1, 'Required'),
-  supportEmail: z.string().email('Valid email required'),
-  logoUrl: z.string().optional(),
+const profileSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
+  email: z.string().email('Valid email required').max(255, 'Email is too long'),
+  phone: z.string().max(50, 'Phone is too long').optional(),
 })
-type BrandInput = z.infer<typeof brandSchema>
+type ProfileInput = z.infer<typeof profileSchema>
 
 const limitsSchema = z.object({
   textMaxLength: z.number().min(1).max(10000),
@@ -70,13 +71,6 @@ const storageSchema = z.object({
   imagekitUrlEndpoint: z.string().url('Must be a valid URL').optional().or(z.literal('')),
 })
 type StorageInput = z.infer<typeof storageSchema>
-
-const profileSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
-  email: z.string().email('Valid email required').max(255, 'Email is too long'),
-  phone: z.string().max(50, 'Phone is too long').optional(),
-})
-type ProfileInput = z.infer<typeof profileSchema>
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -120,11 +114,12 @@ export function SettingsPage() {
   const setUser = useAuthStore((s) => s.setUser)
   const queryClient = useQueryClient()
 
-  const { data: configData } = useAppConfig()
   const { data: sessionsData, isLoading: sessionsLoading } = useQuery({
     queryKey: ['sessions'],
     queryFn: () => auth.sessions(),
-    staleTime: 0,
+    // No polling — real-time updates via socket events:
+    // 'session:created' and 'session:revoked' invalidate this query.
+    staleTime: Infinity,
   })
 
   const revokeSession = useMutation({
@@ -149,7 +144,7 @@ export function SettingsPage() {
   })
 
   // Web push notifications
-  const { state: pushState, enable: enablePush, disable: disablePush } = useWebPush()
+  const { state: pushState, subscription: pushSub, enable: enablePush, disable: disablePush } = useWebPush()
   const isPushLoading = pushState === 'loading'
   const isPushSubscribed = pushState === 'subscribed'
   const isPushUnsupported = pushState === 'unsupported'
@@ -183,11 +178,11 @@ export function SettingsPage() {
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false)
   const { register: regProfile, handleSubmit: hsProfile, reset: resetProfile, formState: { errors: eProfile, isSubmitting: sProfile } } = useForm<ProfileInput>({
     resolver: zodResolver(profileSchema),
-    defaultValues: { name: user?.name ?? '', email: user?.email ?? '', phone: (user as unknown as { phone?: string })?.phone ?? '' },
+    defaultValues: { name: user?.name ?? '', email: user?.email ?? '', phone: user?.phone ?? '' },
   })
   useEffect(() => {
     if (user) {
-      resetProfile({ name: user.name, email: user.email, phone: (user as unknown as { phone?: string }).phone ?? '' })
+      resetProfile({ name: user.name, email: user.email, phone: user.phone ?? '' })
     }
   }, [user, resetProfile])
   const updateProfile = useMutation({
@@ -197,7 +192,7 @@ export function SettingsPage() {
       setIsEditProfileOpen(false)
       // Update user in auth store with all changed fields including phone
       if (user) {
-        const updated = (result as unknown as { user?: { name?: string; email?: string; phone?: string } }).user
+        const updated = (result as { user?: { name?: string; email?: string; phone?: string } }).user
         setUser({
           ...user,
           name: updated?.name ?? user.name,
@@ -223,7 +218,15 @@ export function SettingsPage() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : 'Failed to delete'),
   })
 
-  // Track which settings section was last saved (for Saved indicator)
+  const sessions = sessionsData?.sessions ?? []
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
+
+  // ── Super Admin: Platform Config ──
+  const { data: configData } = useAppConfig()
+  const [saTab, setSaTab] = useState<'features' | 'limits' | 'storage' | 'security' | 'assignment'>('features')
+
+  // Track saved sections
   const [lastSavedSection, setLastSavedSection] = useState<string | null>(null)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const markSaved = (section: string) => {
@@ -231,25 +234,16 @@ export function SettingsPage() {
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
     savedTimerRef.current = setTimeout(() => setLastSavedSection(null), 2500)
   }
-
-  // Cleanup timer on unmount to prevent state update on unmounted component
   useEffect(() => {
     return () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current) }
   }, [])
 
-  // Brand form
-  const { register: regBrand2, handleSubmit: hsBrand2, reset: resetBrand2, formState: { errors: eBrand2, isSubmitting: sBrand2 } } = useForm<BrandInput>({
-    resolver: zodResolver(brandSchema),
-    defaultValues: { siteName: '', tagline: '', company: '', supportEmail: '', logoUrl: '' },
-  })
-  useEffect(() => { if (configData?.brand) resetBrand2({ ...configData.brand, logoUrl: configData.brand.logoUrl || '' }) }, [configData?.brand, resetBrand2])
-  const updateBrand2 = useMutation({
-    mutationFn: (d: BrandInput) => appConfig.updateBrand(d),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['appConfig'] }); markSaved('brand'); toast.success('Brand updated') },
-    onError: () => toast.error('Failed'),
-  })
+  const SaveIndicator = ({ section }: { section: string }) => {
+    if (lastSavedSection === section) return <span className="flex items-center gap-1 text-[10px] text-green-600"><Check className="h-3 w-3" />Saved</span>
+    return null
+  }
 
-  // Features — each toggle/field auto-saves individually
+  // Features
   const [featureValues, setFeatureValues] = useState({ userRegistration: true, mediaUpload: true, messageDelete: true, messageDeleteTimeLimitSeconds: 300 })
   useEffect(() => {
     if (configData?.features) setFeatureValues({
@@ -271,6 +265,7 @@ export function SettingsPage() {
     finally { setTogglingFeature(null) }
   }
 
+  // Limits form
   const { register: regLimits, handleSubmit: hsLimits, reset: resetLimits, formState: { isSubmitting: sLimits } } = useForm<LimitsInput>({
     resolver: zodResolver(limitsSchema),
   })
@@ -324,16 +319,9 @@ export function SettingsPage() {
     onError: () => toast.error('Failed'),
   })
 
-  const sessions = sessionsData?.sessions ?? []
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN'
-  const [saTab, setSaTab] = useState<'brand' | 'features' | 'limits' | 'storage' | 'security' | 'assignment'>('brand')
-
-
-
-  // Assignment settings state — initialise from config, stays in sync via cache:invalidate socket
+  // Assignment settings
   const [assignMaxLoad, setAssignMaxLoad] = useState<number>(25)
-  const [assignThreshold, setAssignThreshold] = useState<number>(80) // displayed as %, stored as 0-1
+  const [assignThreshold, setAssignThreshold] = useState<number>(80)
   const [assignPreferOnline, setAssignPreferOnline] = useState<boolean>(true)
   useEffect(() => {
     if (configData?.assignment) {
@@ -373,26 +361,19 @@ export function SettingsPage() {
 
   const triggerMediaCleanup = useTriggerMediaCleanup()
 
-  const SaveIndicator = ({ section }: { section: string }) => {
-    if (lastSavedSection === section) return <span className="flex items-center gap-1 text-[10px] text-green-600"><Check className="h-3 w-3" />Saved</span>
-    return null
-  }
-
   const TABS = [
-    { id: 'brand', label: 'Brand', icon: Palette },
-    { id: 'features', label: 'Features', icon: Zap },
-    { id: 'limits', label: 'Limits', icon: Sliders },
-    { id: 'storage', label: 'Storage', icon: Cloud },
-    { id: 'security', label: 'Security', icon: Lock },
-
-    { id: 'assignment', label: 'Assignment', icon: Users2 },
+    { id: 'features', label: 'Features', shortLabel: 'Features', icon: Zap },
+    { id: 'limits', label: 'Limits', shortLabel: 'Limits', icon: Sliders },
+    { id: 'storage', label: 'Storage', shortLabel: 'Storage', icon: Cloud },
+    { id: 'security', label: 'Security', shortLabel: 'Security', icon: Lock },
+    { id: 'assignment', label: 'Assignment', shortLabel: 'Assign', icon: Users2 },
   ] as const
 
   return (
     <div className={insideLayout ? 'flex flex-col h-full' : 'flex h-screen flex-col'}>
       {!insideLayout && <AppHeader />}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-2 sm:p-4">
+        <div className="max-w-5xl mx-auto p-3 sm:p-4">
 
           {/* ── Top: Profile + Password side by side ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -416,10 +397,10 @@ export function SettingsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{user?.name}</p>
                     <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                    {(user as unknown as { phone?: string }).phone && (
+                    {user?.phone && (
                       <p className="text-xs text-muted-foreground truncate flex items-center gap-1 mt-0.5">
                         <Phone className="h-3 w-3 shrink-0" />
-                        {(user as unknown as { phone?: string }).phone}
+                        {user.phone}
                       </p>
                     )}
                     {isAdmin && (
@@ -430,9 +411,9 @@ export function SettingsPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 sm:pl-3 sm:border-l divide-x">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-0 sm:pl-3 sm:border-l w-full sm:w-auto">
                   {/* Email alerts */}
-                  <div className="flex items-center gap-2 pr-3">
+                  <div className="flex items-center gap-2 sm:pr-3">
                     <Bell className="h-3.5 w-3.5 text-muted-foreground" />
                     <div>
                       <p className="text-xs font-medium">Email alerts</p>
@@ -442,7 +423,7 @@ export function SettingsPage() {
                   </div>
                   {/* Push notifications */}
                   {!isPushUnsupported && (
-                    <div className="flex items-center gap-2 pl-3">
+                    <div className="flex items-center gap-2 sm:pl-3">
                       <Bell className="h-3.5 w-3.5 text-muted-foreground" />
                       <div>
                         <p className="text-xs font-medium">Push alerts</p>
@@ -450,12 +431,16 @@ export function SettingsPage() {
                           {pushState === 'denied' ? 'Blocked' : 'Background'}
                         </p>
                       </div>
-                      <Switch
-                        id="push-notifications-toggle"
-                        checked={isPushSubscribed}
-                        disabled={isPushLoading || isPushDenied}
-                        onCheckedChange={handlePushToggle}
-                      />
+                      {isPushLoading ? (
+                        <Skeleton className="h-5 w-9 rounded-full ml-auto" />
+                      ) : (
+                        <Switch
+                          id="push-notifications-toggle"
+                          checked={isPushSubscribed}
+                          disabled={isPushDenied}
+                          onCheckedChange={handlePushToggle}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -505,12 +490,12 @@ export function SettingsPage() {
             </div>
           )}
 
-          {/* ── Super Admin Panel ── */}
+          {/* ── Super Admin: Platform Settings ── */}
           {isSuperAdmin && (
             <div className="rounded-xl border bg-card overflow-hidden mb-4">
               {/* Tabs */}
               <div className="flex border-b overflow-x-auto [&::-webkit-scrollbar]:hidden [-webkit-overflow-scrolling:touch]">
-                {TABS.map(({ id, label, icon: Icon }) => (
+                {TABS.map(({ id, label, shortLabel, icon: Icon }) => (
                   <button
                     key={id}
                     onClick={() => setSaTab(id)}
@@ -518,47 +503,12 @@ export function SettingsPage() {
                   >
                     <Icon className="h-3.5 w-3.5 shrink-0" />
                     <span className="hidden sm:inline">{label}</span>
-                    <span className="sm:hidden text-[10px]">{label.slice(0, 4)}</span>
+                    <span className="sm:hidden text-[10px]">{shortLabel}</span>
                   </button>
                 ))}
               </div>
 
-              {/* Brand Tab */}
-              {saTab === 'brand' && (
-                <form onSubmit={hsBrand2((d) => updateBrand2.mutate(d))}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
-                    <div>
-                      <FieldRow label="Site Name" hint="Shown in browser tab">
-                        <Input className="h-8 text-sm" {...regBrand2('siteName')} />
-                        {eBrand2.siteName && <p className="text-[10px] text-destructive mt-0.5">{eBrand2.siteName.message}</p>}
-                      </FieldRow>
-                      <FieldRow label="Company">
-                        <Input className="h-8 text-sm" {...regBrand2('company')} />
-                      </FieldRow>
-                      <FieldRow label="Tagline">
-                        <Input className="h-8 text-sm" {...regBrand2('tagline')} />
-                      </FieldRow>
-                    </div>
-                    <div>
-                      <FieldRow label="Support Email">
-                        <Input type="email" className="h-8 text-sm" {...regBrand2('supportEmail')} />
-                        {eBrand2.supportEmail && <p className="text-[10px] text-destructive mt-0.5">{eBrand2.supportEmail.message}</p>}
-                      </FieldRow>
-                      <FieldRow label="Logo URL" hint="Optional">
-                        <Input className="h-8 text-sm" placeholder="https://..." {...regBrand2('logoUrl')} />
-                      </FieldRow>
-                    </div>
-                  </div>
-                  <div className="px-3 py-2 border-t bg-muted/20 flex items-center justify-between">
-                    <SaveIndicator section="brand" />
-                    <Button type="submit" size="sm" disabled={sBrand2 || updateBrand2.isPending}>
-                      {(sBrand2 || updateBrand2.isPending) && <LeafLogo className="h-3.5 w-3.5 animate-spin mr-1.5" />}Save Brand
-                    </Button>
-                  </div>
-                </form>
-              )}
-
-              {/* Features Tab — each switch auto-saves on toggle */}
+              {/* Features Tab */}
               {saTab === 'features' && (
                 <div>
                   {([
@@ -704,7 +654,7 @@ export function SettingsPage() {
                     </div>
                   </form>
 
-                  {/* Media Cleanup Section */}
+                  {/* Media Cleanup */}
                   <div className="border-t">
                     <div className="px-3 py-1.5 bg-muted/30 border-b">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Media Maintenance</p>
@@ -735,7 +685,6 @@ export function SettingsPage() {
                 </>
               )}
 
-
               {/* Assignment Tab */}
               {saTab === 'assignment' && (
                 <div>
@@ -749,76 +698,71 @@ export function SettingsPage() {
                     </div>
                   ) : (
                     <>
+                      <div className="mx-3 mt-3 flex items-start gap-2.5 rounded-lg border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2.5">
+                        <Info className="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" />
+                        <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
+                          Conversations are auto-assigned to the least-loaded <strong>Admin</strong> who handles that subsidiary.
+                          Super Admins only absorb overflow once all Admins hit the threshold below.
+                          Changes apply to new assignments immediately — no restart needed.
+                        </p>
+                      </div>
 
-                  {/* How it works callout */}
-                  <div className="mx-3 mt-3 flex items-start gap-2.5 rounded-lg border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2.5">
-                    <Info className="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed">
-                      Conversations are auto-assigned to the least-loaded <strong>Admin</strong> who handles that subsidiary.
-                      Super Admins only absorb overflow once all Admins hit the threshold below.
-                      Changes apply to new assignments immediately — no restart needed.
-                    </p>
-                  </div>
-
-                  <div className="divide-y">
-                    {/* Max load per admin */}
-                    <div className="px-3 py-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-medium">Max conversations per admin</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">Hard cap — no admin receives more than this many active conversations.</p>
+                      <div className="divide-y">
+                        <div className="px-3 py-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium">Max conversations per admin</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">Hard cap — no admin receives more than this many active conversations.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setAssignMaxLoad(v => Math.max(1, v - 1))}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">−</button>
+                              <span className="w-8 text-center text-sm font-semibold tabular-nums">{assignMaxLoad}</span>
+                              <button onClick={() => setAssignMaxLoad(v => Math.min(500, v + 1))}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">+</button>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => setAssignMaxLoad(v => Math.max(1, v - 1))}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">−</button>
-                          <span className="w-8 text-center text-sm font-semibold tabular-nums">{assignMaxLoad}</span>
-                          <button onClick={() => setAssignMaxLoad(v => Math.min(500, v + 1))}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">+</button>
+
+                        <div className="px-3 py-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium">Super admin overflow threshold</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                Super Admins only get assigned when <strong>all</strong> regular Admins are at or above this % of their max load.
+                                Currently: {assignThreshold}% of {assignMaxLoad} = {Math.ceil(assignMaxLoad * assignThreshold / 100)} conversations.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setAssignThreshold(v => Math.max(10, v - 5))}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">−</button>
+                              <span className="w-10 text-center text-sm font-semibold tabular-nums">{assignThreshold}%</span>
+                              <button onClick={() => setAssignThreshold(v => Math.min(100, v + 5))}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">+</button>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${assignThreshold}%` }} />
+                          </div>
+                        </div>
+
+                        <div className="px-3 py-3 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-medium">Prefer online admins</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Always assign to an online admin first, even if they have more load than an offline one.</p>
+                          </div>
+                          <Switch checked={assignPreferOnline} onCheckedChange={setAssignPreferOnline} />
                         </div>
                       </div>
-                    </div>
 
-                    {/* Super admin threshold */}
-                    <div className="px-3 py-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-medium">Super admin overflow threshold</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
-                            Super Admins only get assigned when <strong>all</strong> regular Admins are at or above this % of their max load.
-                            Currently: {assignThreshold}% of {assignMaxLoad} = {Math.ceil(assignMaxLoad * assignThreshold / 100)} conversations.
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => setAssignThreshold(v => Math.max(10, v - 5))}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">−</button>
-                          <span className="w-10 text-center text-sm font-semibold tabular-nums">{assignThreshold}%</span>
-                          <button onClick={() => setAssignThreshold(v => Math.min(100, v + 5))}
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-sm font-bold">+</button>
-                        </div>
+                      <div className="px-3 py-2 border-t bg-muted/20 flex items-center justify-between">
+                        <SaveIndicator section="assignment" />
+                        <Button type="button" size="sm" disabled={updateAssignment.isPending} onClick={() => updateAssignment.mutate()}>
+                          {updateAssignment.isPending && <LeafLogo className="h-3.5 w-3.5 animate-spin mr-1.5" />}Save Assignment Settings
+                        </Button>
                       </div>
-                      {/* Visual bar */}
-                      <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${assignThreshold}%` }} />
-                      </div>
-                    </div>
-
-                    {/* Prefer online */}
-                    <div className="px-3 py-3 flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium">Prefer online admins</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Always assign to an online admin first, even if they have more load than an offline one.</p>
-                      </div>
-                      <Switch checked={assignPreferOnline} onCheckedChange={setAssignPreferOnline} />
-                    </div>
-                  </div>
-
-                  <div className="px-3 py-2 border-t bg-muted/20 flex items-center justify-between">
-                    <SaveIndicator section="assignment" />
-                    <Button type="button" size="sm" disabled={updateAssignment.isPending} onClick={() => updateAssignment.mutate()}>
-                      {updateAssignment.isPending && <LeafLogo className="h-3.5 w-3.5 animate-spin mr-1.5" />}Save Assignment Settings
-                    </Button>
-                  </div>
-                  </>)}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -891,6 +835,153 @@ export function SettingsPage() {
               <p className="text-xs text-muted-foreground">Manage your uploaded files and attachments</p>
             </div>
           </div>
+
+          {/* ── Notification Test Center (Super Admin Only) ── */}
+          {isSuperAdmin && (
+            <div className="mt-8 pt-8 border-t mb-8">
+              <div className="mb-6">
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-yellow-500" />
+                  Notification Test Center
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Use these tools to diagnose why push notifications might not be appearing on your device.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Browser Status */}
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <Globe className="h-3 w-3" />
+                    Browser Status
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Permission:</span>
+                      <span className={`font-mono font-bold ${Notification.permission === 'granted' ? 'text-green-600' : 'text-yellow-600'}`}>
+                        {Notification.permission.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Service Worker:</span>
+                      <span className={`font-mono font-bold ${'serviceWorker' in navigator ? 'text-green-600' : 'text-red-600'}`}>
+                        {'serviceWorker' in navigator ? (navigator.serviceWorker.controller ? 'ACTIVE' : 'REGISTERED') : 'NOT SUPPORTED'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Push Manager:</span>
+                      <span className={`font-mono font-bold ${'PushManager' in window ? 'text-green-600' : 'text-red-600'}`}>
+                        {'PushManager' in window ? 'SUPPORTED' : 'MISSING'}
+                      </span>
+                    </div>
+                    {pushSub && (
+                      <div className="pt-2 border-t mt-1">
+                        <p className="text-[10px] text-muted-foreground mb-1">Active Endpoint:</p>
+                        <p className="text-[10px] font-mono break-all line-clamp-2 bg-black/5 p-1 rounded">
+                          {pushSub.endpoint}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Local Diagnostics */}
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <Monitor className="h-3 w-3" />
+                    Local Diagnostics
+                  </h3>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-8"
+                      onClick={() => {
+                        try {
+                          new Notification('🔔 Local Test', { 
+                            body: 'If you see this, Windows/OS notifications are working!',
+                            icon: '/vite.svg'
+                          })
+                          toast.success('Local notification triggered')
+                        } catch (e) {
+                          toast.error('Local test failed: ' + (e instanceof Error ? e.message : String(e)))
+                        }
+                      }}
+                    >
+                      Test Local Banner
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs h-8"
+                      onClick={async () => {
+                        const regs = await navigator.serviceWorker.getRegistrations()
+                        for (const reg of regs) {
+                          await reg.unregister()
+                        }
+                        window.location.reload()
+                      }}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1.5" />
+                      Hard Reset SW
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Network Chain */}
+                <div className="rounded-xl border bg-muted/20 p-4 space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                    <Zap className="h-3 w-3" />
+                    Network Chain
+                  </h3>
+                  <div className="space-y-2">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="w-full text-xs h-8 bg-yellow-600 hover:bg-yellow-700"
+                      onClick={async () => {
+                        try {
+                          const res = await notificationsApi.testPush()
+                          if (res.success) {
+                            toast.success('Test push requested! Wait 2-5 seconds.')
+                          }
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : 'Push request failed')
+                        }
+                      }}
+                    >
+                      Trigger Backend Push
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-[10px] h-7"
+                      disabled={!pushSub}
+                      onClick={async () => {
+                        if (!pushSub) return
+                        const raw = pushSub.toJSON()
+                        try {
+                          await notificationsApi.subscribe({
+                            endpoint: raw.endpoint!,
+                            keys: { p256dh: raw.keys?.p256dh!, auth: raw.keys?.auth! }
+                          })
+                          toast.success('Subscription re-synced to server')
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : 'Sync failed')
+                        }
+                      }}
+                    >
+                      Manually Re-Sync Address
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground text-center italic">
+                      Verifies VAPID keys &rarr; Push Service &rarr; SW
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

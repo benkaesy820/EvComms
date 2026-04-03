@@ -6,7 +6,7 @@ import { format } from 'date-fns'
 import { cn, parseTimestamp, getInitials } from '@/lib/utils'
 import { EmojiPicker } from '@/components/ui/EmojiPicker'
 import { MediaGrid, DocumentPreview } from './MediaGrid'
-import type { Message, InternalMessage, DirectMessage } from '@/lib/schemas'
+import type { Message, InternalMessage, DirectMessage, MessageStatus } from '@/lib/schemas'
 import { useAuthStore } from '@/stores/authStore'
 import { LeafLogo } from '@/components/ui/LeafLogo'
 import {
@@ -25,7 +25,7 @@ export interface ReactionGroup {
   hasReacted: boolean
 }
 
-type GenericMessage = Message | InternalMessage | DirectMessage
+type GenericMessage = (Message | InternalMessage | DirectMessage) & { replyToId?: string | null; status?: MessageStatus; readBy?: string[] }
 
 export interface MessageBubbleProps {
   message: GenericMessage & {
@@ -300,7 +300,7 @@ function MessageBubbleInner({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isMine = user?.id === message.senderId || (message.sender && user?.id === message.sender.id)
-  const isFailed = (message as any).status === 'FAILED'
+  const isFailed = message.status === 'FAILED'
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
   const isDeleted = 'deletedAt' in message ? !!message.deletedAt : false
   const isTemp = message.id.startsWith('temp-')
@@ -331,7 +331,7 @@ function MessageBubbleInner({
   const reactedEmojis = useMemo(() => groupedReactions.filter(r => r.hasReacted).map(r => r.emoji), [groupedReactions])
 
   const replyTo = message.replyTo ? {
-    id: ('id' in message.replyTo) ? message.replyTo.id : (message as any).replyToId,
+    id: ('id' in message.replyTo) ? message.replyTo.id : message.replyToId,
     senderName: message.replyTo.sender?.name || 'User',
     content: message.replyTo.content,
     isDeleted: 'deletedAt' in message.replyTo ? !!message.replyTo.deletedAt : false,
@@ -395,7 +395,7 @@ function MessageBubbleInner({
   if (isDeleted) {
     return (
       <div className={cn('flex mb-3', isMine ? 'justify-end' : 'justify-start')}>
-        <div className="max-w-[75%] rounded-lg px-3 py-2 text-xs italic text-muted-foreground bg-muted/50">
+        <div className="max-w-[85%] sm:max-w-[75%] rounded-lg px-3 py-2 text-xs italic text-muted-foreground bg-muted/50">
           This message was deleted
         </div>
       </div>
@@ -457,7 +457,7 @@ function MessageBubbleInner({
           )
         )}
 
-        <div className={cn('flex items-end gap-1.5 max-w-[75%]', isMine ? 'flex-row-reverse' : 'flex-row')}>
+        <div className={cn('flex items-end gap-1.5 max-w-[85%] sm:max-w-[75%]', isMine ? 'flex-row-reverse' : 'flex-row')}>
           {/* Bubble wrapper */}
           <div className={cn('flex flex-col relative', isMine ? 'items-end' : 'items-start min-w-0 flex-1')}>
 
@@ -538,7 +538,7 @@ function MessageBubbleInner({
                       ? <LeafLogo className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                       : message.status && (
                         <StatusIcon status={message.status} groupMode={groupMode} groupSize={groupSize}
-                          readCount={readCount ?? (message as any).readBy?.length ?? 0} />
+                          readCount={readCount ?? message.readBy?.length ?? 0} />
                       )
                     )}
                   </div>
@@ -550,7 +550,7 @@ function MessageBubbleInner({
                     ? <LeafLogo className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                     : message.status && (
                       <StatusIcon status={message.status} groupMode={groupMode} groupSize={groupSize}
-                        readCount={readCount ?? (message as any).readBy?.length ?? 0} />
+                        readCount={readCount ?? message.readBy?.length ?? 0} />
                     )
                   )}
                 </div>

@@ -88,8 +88,14 @@ export function useAdminUsers(params?: {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
     }
 
+    const handleMediaPermissionChanged = (_data: { mediaPermission: boolean }) => {
+      // Invalidate all user caches since we don't know which user changed
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+    }
+
     socket.on('admin:user_registered', handleUserRegistered)
     socket.on('user:status_changed', handleStatusChanged)
+    socket.on('user:media_permission_changed', handleMediaPermissionChanged)
     socket.on('conversation:assigned', handleAssignmentChange)
     socket.on('conversation:assigned_to_you', handleAssignmentChange)
     socket.on('conversation:removed', handleAssignmentChange)
@@ -97,6 +103,7 @@ export function useAdminUsers(params?: {
     return () => {
       socket.off('admin:user_registered', handleUserRegistered)
       socket.off('user:status_changed', handleStatusChanged)
+      socket.off('user:media_permission_changed', handleMediaPermissionChanged)
       socket.off('conversation:assigned', handleAssignmentChange)
       socket.off('conversation:assigned_to_you', handleAssignmentChange)
       socket.off('conversation:removed', handleAssignmentChange)
@@ -264,13 +271,33 @@ export function useAuditLogs(params?: {
 }
 
 export function useAdminList() {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket) return
+
+    // Invalidate admin list when any admin's status changes (suspend/reactivate/new admin).
+    // The acting admin's mutation onSuccess already updates their own view; this handler
+    // ensures OTHER admins viewing AdminsPage see the change live without a manual refresh.
+    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['admin', 'admins'] })
+
+    socket.on('user:status_changed', invalidate)
+    socket.on('admin:user_registered', invalidate)
+    return () => {
+      socket.off('user:status_changed', invalidate)
+      socket.off('admin:user_registered', invalidate)
+    }
+  }, [queryClient])
+
   return useQuery({
     queryKey: ['admin', 'admins'],
     queryFn: async () => {
       const res = await adminAdmins.list()
       return { ...res, allAdmins: [...(res.superAdmins ?? []), ...res.admins] }
     },
-    staleTime: 30_000, // refresh every 30s so workload counts stay reasonably current
+    // staleTime:0 so socket-triggered invalidations always cause an immediate refetch
+    staleTime: 0,
   })
 }
 

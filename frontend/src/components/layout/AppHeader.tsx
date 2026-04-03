@@ -67,7 +67,7 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-14 items-center gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6">
+      <div className="flex h-12 sm:h-14 items-center gap-2 sm:gap-4 px-3 sm:px-4 lg:px-6">
         {/* Logo */}
         <button
           onClick={() => navigate(isAdmin ? '/admin/home' : '/home')}
@@ -125,7 +125,9 @@ export function AppHeader() {
         {/* Admin search */}
         {isAdmin && (
           <div className="flex-1 flex justify-center px-1 sm:px-4 min-w-0">
-            <GlobalSearch />
+            <div className="w-full sm:w-auto">
+              <GlobalSearch />
+            </div>
           </div>
         )}
         {!isAdmin && <div className="flex-1 min-w-0" />}

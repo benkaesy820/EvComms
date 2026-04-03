@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -702,11 +702,20 @@ export function BrandPage() {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN'
   const [active, setActive] = useState<SectionId>('brand')
   const [savedSet, setSavedSet] = useState<Set<SectionId>>(new Set())
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
 
   const markSaved = (id: SectionId) => {
     setSavedSet(p => new Set(p).add(id))
-    setTimeout(() => setSavedSet(p => { const n = new Set(p); n.delete(id); return n }), 3000)
+    const timer = setTimeout(() => {
+      timersRef.current.delete(timer)
+      setSavedSet(p => { const n = new Set(p); n.delete(id); return n })
+    }, 3000)
+    timersRef.current.add(timer)
   }
+
+  useEffect(() => {
+    return () => { for (const t of timersRef.current) clearTimeout(t) }
+  }, [])
 
   if (!isSuperAdmin) {
     return (

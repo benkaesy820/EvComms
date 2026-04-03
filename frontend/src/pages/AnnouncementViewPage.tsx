@@ -194,7 +194,7 @@ export function AnnouncementViewPage() {
             <img
               src={announcement.mediaAttachment.cdnUrl}
               alt={announcement.mediaAttachment.filename}
-              className="w-full h-56 sm:h-72 object-cover"
+              className="w-full h-40 sm:h-64 object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
           </div>
@@ -202,12 +202,12 @@ export function AnnouncementViewPage() {
 
         {/* Gradient accent banner for non-media posts */}
         {!hasMedia && (
-          <div className={cn('h-24 bg-gradient-to-b', getGradient(announcement.type))} />
+          <div className={cn('h-16 sm:h-24 bg-gradient-to-b', getGradient(announcement.type))} />
         )}
 
-        <div className="max-w-3xl mx-auto w-full px-4 sm:px-6 -mt-8 relative pb-12">
+        <div className="max-w-3xl mx-auto w-full px-3 sm:px-6 -mt-6 sm:-mt-8 relative pb-12">
           {/* Type + template badges */}
-          <div className="flex flex-wrap gap-2 mb-4">
+          <div className="flex flex-wrap gap-1.5 mb-3">
             <Badge className={cn('gap-1.5 rounded-lg', config.bg, config.color, 'border', config.border)}>
               <Icon className="h-3 w-3" />
               {config.label}

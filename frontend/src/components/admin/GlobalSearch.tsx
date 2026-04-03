@@ -157,10 +157,12 @@ export function GlobalSearch() {
     if (open) setTimeout(() => inputRef.current?.focus(), 30)
   }, [open])
 
-  // Lock body scroll while open (the body already has overflow-hidden for chat, this is a safety net)
+  // Lock body scroll while open
   useEffect(() => {
     if (!open) return
-    return () => { /* noop */ }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
   }, [open])
 
   const handleApprove = useCallback(async (userId: string, userName: string) => {
@@ -203,7 +205,8 @@ export function GlobalSearch() {
       aria-label="Open search"
     >
       <Search className="h-3.5 w-3.5 shrink-0" />
-      <span className="flex-1 text-left truncate">Search...</span>
+      <span className="flex-1 text-left truncate sm:inline hidden">Search...</span>
+      <span className="sm:hidden text-xs flex-1 text-left">Search</span>
       <kbd className="hidden md:inline-flex h-5 select-none items-center gap-0.5 rounded border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-70">
         ⌘K
       </kbd>

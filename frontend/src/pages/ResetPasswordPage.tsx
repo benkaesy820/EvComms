@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertCircle, CheckCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
@@ -137,6 +137,7 @@ export function ResetPasswordPage() {
             id="newPassword"
             placeholder="Min 12 characters"
             autoComplete="new-password"
+            autoFocus
             className="h-11 rounded-xl bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-2"
             {...register('newPassword')}
           />
@@ -169,7 +170,10 @@ export function ResetPasswordPage() {
           {isSubmitting ? (
             <LeafLogo className="h-4 w-4 animate-spin" />
           ) : (
-            'Reset Password'
+            <>
+              <Lock className="h-4 w-4" />
+              Reset Password
+            </>
           )}
         </Button>
 

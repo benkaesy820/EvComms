@@ -1,5 +1,4 @@
-import * as React from 'react'
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo, type UIEvent } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { 
   Archive, ArchiveRestore, UserCheck, FileWarning, MoreVertical,
@@ -41,10 +40,12 @@ import { MessageInput } from '@/components/chat/MessageInput'
 import { BulkDeleteBar } from '@/components/chat/BulkDeleteBar'
 import { useChatStore } from '@/stores/chatStore'
 import { useAuthStore } from '@/stores/authStore'
-import { getSocket } from '@/lib/socket'
+import { getSocket, setActiveFocusedConversation } from '@/lib/socket'
 import { conversations as convApi } from '@/lib/api'
+import { prependMessage, replaceTempMessage, softDeleteMessage, markMessagesRead, applyReaction } from '@/lib/messageCache'
+import type { MessagesCache } from '@/lib/messageCache'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import type { Conversation, Message, MessageReaction, Status } from '@/lib/schemas'
+import type { Conversation, Message, MessageReaction, Status, Role } from '@/lib/schemas'
 import { LeafLogo } from '@/components/ui/LeafLogo'
 import { useQueue, formatWaitDuration } from '@/hooks/useQueue'
 import { useArchiveConversation as useArchiveConversationHook, useUnarchiveConversation } from '@/hooks/useArchiveConversation'
@@ -74,7 +75,7 @@ function ConversationItem({
 }) {
   const userName = conversation.user?.name ?? 'Unknown User'
   const lastMsg = conversation.lastMessage as Message | null | undefined
-  const [confirmArchive, setConfirmArchive] = React.useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
   const senderPrefix = lastMsg?.sender?.role && lastMsg.sender.role !== 'USER' ? `${lastMsg.sender.name}: ` : ''
   const preview = lastMsg?.deletedAt
     ? 'Message deleted'
@@ -253,7 +254,7 @@ function ConversationItem({
   )
 }
 
-type AssignVars = { conversationId: string; adminId: string | null; admin?: { id: string; name: string; role: any } | null }
+type AssignVars = { conversationId: string; adminId: string | null; admin?: { id: string; name: string; role: Role } | null }
 
 function useAssignConversation() {
   const queryClient = useQueryClient()
@@ -354,17 +355,24 @@ function AdminChatView({
   const [newStatus, setNewStatus] = useState<Status>('PENDING')
   const [statusReason, setStatusReason] = useState('')
 
-  // Mobile keyboard: update --chat-h so the input is never hidden by the virtual keyboard
+  // Mobile keyboard: update --chat-h so the input is never hidden by the virtual keyboard.
+  // Also toggle keyboard-open on <html> so AdminLayout can zero out its bottom padding,
+  // matching the behaviour in ChatPage and DMPage.
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const update = () => document.documentElement.style.setProperty('--chat-h', `${vv.height}px`)
+    const update = () => {
+      const h = vv.height
+      document.documentElement.style.setProperty('--chat-h', `${h}px`)
+      document.documentElement.classList.toggle('keyboard-open', window.innerHeight - h > 100)
+    }
     update()
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
     return () => {
       vv.removeEventListener('resize', update)
       vv.removeEventListener('scroll', update)
+      document.documentElement.classList.remove('keyboard-open')
     }
   }, [])
   const [linkedAnnouncement, setLinkedAnnouncement] = useState<{ id: string; title: string; type: string } | null>(null)
@@ -406,15 +414,25 @@ function AdminChatView({
     setIsBulkDeleting(true)
     const ids = Array.from(selectedIds)
     const CHUNK = 5
+    let succeeded = 0
+    let failed = 0
     for (let i = 0; i < ids.length; i += CHUNK) {
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         ids.slice(i, i + CHUNK).map(messageId =>
           deleteMsg.mutateAsync({ messageId, conversationId, scope: 'all', permanent })
         )
       )
+      results.forEach(r => r.status === 'fulfilled' ? succeeded++ : failed++)
     }
     setIsBulkDeleting(false)
     exitSelectMode()
+    if (failed === 0) {
+      toast.success(`Deleted ${succeeded} message${succeeded !== 1 ? 's' : ''}`)
+    } else if (succeeded > 0) {
+      toast.warning(`Deleted ${succeeded} of ${ids.length} messages — ${failed} failed`)
+    } else {
+      toast.error('Failed to delete messages')
+    }
   }, [selectedIds, deleteMsg, conversationId, exitSelectMode])
 
   const typingContent = useMemo(
@@ -439,7 +457,9 @@ function AdminChatView({
     const socket = getSocket()
     if (!socket || !conversationId) return
 
-    const TYPING_TIMEOUT_MS = 5000
+    // 8s: matches ChatPage's typing timeout — 2× the 3s heartbeat so the indicator
+    // never flickers off between re-emits on a slow connection.
+    const TYPING_TIMEOUT_MS = 8000
 
     const clearTypingTimer = (userId: string) => {
       const t = typingTimersRef.current.get(userId)
@@ -462,91 +482,43 @@ function AdminChatView({
       setTypingUsers((prev) => { const n = new Map(prev); n.delete(data.userId); return n })
     }
 
-    type CacheShape = { pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] }
-    const updateCache = (updater: (old: CacheShape) => CacheShape) =>
-      queryClient.setQueryData<CacheShape>(['messages', conversationId], (old) => old ? updater(old) : old)
-
     const handleNewMessage = (data: { message: Message }) => {
       if (data.message.conversationId !== conversationId) return
-      updateCache((old) => {
-        if (!old || !old.pages || old.pages.length === 0) {
-          return { pages: [{ messages: [data.message], hasMore: false }] as any, pageParams: [] }
-        }
-        const first = old.pages[0]
-        if (first.messages.some(m => m.id === data.message.id)) return old
-        return { ...old, pages: [{ ...first, messages: [data.message, ...first.messages] }, ...old.pages.slice(1)] }
-      })
-      // Visibility-based markRead handles this — no timer needed
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => prependMessage(old, data.message),
+      )
     }
 
     const handleMessageSent = (data: { tempId: string; message: Message }) => {
       if (data.message.conversationId !== conversationId) return
-      updateCache((old) => {
-        const seen = new Set<string>()
-        return {
-          ...old,
-          pages: old.pages.map(p => ({
-            ...p,
-            messages: p.messages
-              .map(m => {
-                if (m.id !== data.tempId) return m
-                // Preserve optimistic media if server didn't return one (race with confirm)
-                const media = data.message.media ?? m.media
-                return { ...data.message, media }
-              })
-              .filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true })
-          }))
-        }
+      queryClient.setQueryData<MessagesCache>(['messages', conversationId], old => {
+        const { cache } = replaceTempMessage(old, data.tempId, data.message)
+        return cache
       })
     }
 
     const handleMessageDeleted = (data: { messageId: string; conversationId: string; deletedAt: number }) => {
       if (data.conversationId !== conversationId) return
-      updateCache((old) => ({
-        ...old,
-        pages: old.pages.map(p => ({ ...p, messages: p.messages.map(m => m.id === data.messageId ? { ...m, deletedAt: data.deletedAt } : m) }))
-      }))
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => softDeleteMessage(old, data.messageId, data.deletedAt),
+      )
     }
 
     const handleMessagesRead = (data: { conversationId: string; readBy: string; readAt: number }) => {
       if (data.conversationId !== conversationId) return
-      updateCache((old) => ({
-        ...old,
-        pages: old.pages.map(p => ({
-          ...p,
-          messages: p.messages.map(m => {
-            const mAny = m as any
-            const newReadBy = Array.from(new Set([...(mAny.readBy || []), data.readBy]))
-            return { ...m, status: 'READ' as any, readBy: newReadBy }
-          })
-        }))
-      }))
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => markMessagesRead(old, data.readAt),
+      )
     }
 
     const handleReaction = (data: { messageId: string; reaction: MessageReaction | { userId: string; emoji: string }; action: 'add' | 'remove' }) => {
-      updateCache((old) => ({
-        ...old,
-        pages: old.pages.map(p => ({
-          ...p,
-          messages: p.messages.map(m => {
-            if (m.id !== data.messageId) return m
-            const reactions = m.reactions ?? []
-            if (data.action === 'add') {
-              // Create a proper MessageReaction object if it's not complete
-              const reaction: MessageReaction = 'id' in data.reaction
-                ? data.reaction as MessageReaction
-                : {
-                  id: '', // Will be updated by server
-                  messageId: data.messageId,
-                  userId: data.reaction.userId,
-                  emoji: data.reaction.emoji
-                }
-              return { ...m, reactions: [...reactions.filter(r => r.userId !== reaction.userId), reaction] }
-            }
-            return { ...m, reactions: reactions.filter(r => !(r.userId === data.reaction.userId && r.emoji === data.reaction.emoji)) }
-          })
-        }))
-      }))
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => applyReaction(old, data.messageId, data.reaction, data.action),
+      )
     }
 
     socket.on('typing:start', handleTypingStart)
@@ -557,6 +529,25 @@ function AdminChatView({
     socket.on('message:reaction', handleReaction)
     socket.on('messages:read', handleMessagesRead)
 
+    // Tell the server we are actively viewing this conversation so push notifications
+    // are suppressed while the admin has the chat open — mirrors ChatPage behaviour.
+    socket.emit('conversation:focus', { conversationId })
+    // Also register in the per-tab module variable so the global useSocket hook
+    // can detect "admin is actively watching this exact conversation in THIS tab"
+    // without reading localStorage (which is shared across tabs and causes false-pop).
+    setActiveFocusedConversation(conversationId)
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        socket.emit('conversation:focus', { conversationId })
+        setActiveFocusedConversation(conversationId)
+      } else {
+        socket.emit('conversation:blur')
+        setActiveFocusedConversation(null)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       socket.off('typing:start', handleTypingStart)
       socket.off('typing:stop', handleTypingStop)
@@ -565,6 +556,9 @@ function AdminChatView({
       socket.off('message:deleted', handleMessageDeleted)
       socket.off('message:reaction', handleReaction)
       socket.off('messages:read', handleMessagesRead)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      socket.emit('conversation:blur')
+      setActiveFocusedConversation(null)
       typingTimersRef.current.forEach(t => clearTimeout(t))
       typingTimersRef.current.clear()
     }
@@ -572,7 +566,7 @@ function AdminChatView({
 
   return (
     <div className="chat-viewport-height flex flex-col overflow-hidden bg-accent/20 dark:bg-background relative">
-      <div className="flex items-center gap-3 border-b px-4 py-2.5 bg-sidebar shrink-0 z-10 shadow-sm">
+      <div className="flex items-center gap-3 border-b px-4 py-2.5 bg-sidebar shrink-0 z-10 shadow-sm pt-[max(0.625rem,env(safe-area-inset-top))]">
         <Button variant="ghost" size="icon" className="sm:hidden h-8 w-8 shrink-0" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -610,7 +604,7 @@ function AdminChatView({
                     className={!conversation.subsidiaryId ? 'bg-primary/10 font-medium' : ''}
                     onClick={() => {
                       if (conversation.subsidiaryId !== null) {
-                        convApi.updateSubsidiary(conversationId, null).catch(() => {})
+                        convApi.updateSubsidiary(conversationId, null).catch(() => toast.error('Failed to update subsidiary'))
                       }
                     }}
                   >
@@ -622,7 +616,7 @@ function AdminChatView({
                       className={conversation.subsidiaryId === sub.id ? 'bg-primary/10 font-medium' : ''}
                       onClick={() => {
                         if (conversation.subsidiaryId !== sub.id) {
-                          convApi.updateSubsidiary(conversationId, sub.id).catch(() => {})
+                          convApi.updateSubsidiary(conversationId, sub.id).catch(() => toast.error('Failed to update subsidiary'))
                         }
                       }}
                     >
@@ -727,7 +721,7 @@ function AdminChatView({
               <>
                 <DropdownMenuLabel className="text-[10px] uppercase text-muted-foreground font-normal">Assignment</DropdownMenuLabel>
                 {conversation.assignedAdminId !== user?.id && (
-                  <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => assignConv.mutate({ conversationId, adminId: user!.id, admin: { id: user!.id, name: user!.name, role: user!.role as any } })}>
+                  <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => assignConv.mutate({ conversationId, adminId: user!.id, admin: { id: user!.id, name: user!.name, role: user!.role } })}>
                     <UserCheck className="h-4 w-4" /> Assign to me
                   </DropdownMenuItem>
                 )}
@@ -741,7 +735,7 @@ function AdminChatView({
                           .map(a => ({ ...a, workload: workloadMap.get(a.id) }))
                           .sort((a, b) => (a.workload?.activeCount ?? 99) - (b.workload?.activeCount ?? 99))
                           .map(a => (
-                          <DropdownMenuItem key={a.id} className="gap-2" onClick={() => assignConv.mutate({ conversationId, adminId: a.id, admin: { id: a.id, name: a.name, role: a.role as any } })}>
+                          <DropdownMenuItem key={a.id} className="gap-2" onClick={() => assignConv.mutate({ conversationId, adminId: a.id, admin: { id: a.id, name: a.name, role: a.role } })}>
                             <div className={cn('h-1.5 w-1.5 rounded-full shrink-0', a.workload?.isOnline ? 'bg-green-500' : 'bg-muted-foreground/40')} />
                             <span className="flex-1 truncate">{a.name}</span>
                             {a.workload && (
@@ -807,18 +801,18 @@ function AdminChatView({
                 isSelectMode={selectMode}
                 isSelected={selectedIds.has(msg.id)}
                 onSelect={toggleSelect}
-                onReply={selectMode ? undefined : (m) => setReplyTo(m as any)}
+                onReply={selectMode ? undefined : (m) => setReplyTo({ id: m.id, content: m.content, type: m.type, sender: { name: m.sender?.name ?? '' } })}
                 onReact={selectMode ? undefined : (emoji) => {
                   const hasReacted = msg.reactions?.some(r => r.userId === user?.id && r.emoji === emoji)
                   reactionMut.mutate({ messageId: msg.id, emoji, action: hasReacted ? 'remove' : 'add' })
                 }}
                 onDelete={selectMode ? undefined : (scope) => deleteMsg.mutate({ messageId: msg.id, conversationId: msg.conversationId, scope })}
-                onRetry={(msg as any).status === 'FAILED' ? () => {
-                  queryClient.setQueryData<{ pages: Array<{ messages: import('@/lib/schemas').Message[]; hasMore: boolean; success: boolean }> }>(
+                onRetry={msg.status === 'FAILED' ? () => {
+                  queryClient.setQueryData<{ pages: Array<{ messages: Message[]; hasMore: boolean; success: boolean }> }>(
                     ['messages', conversationId],
                     (old) => old ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.filter(m => m.id !== msg.id) })) } : old
                   )
-                  sendMessage.mutate({ type: msg.type, content: msg.content ?? undefined, mediaId: (msg.media as any)?.id, replyToId: msg.replyToId ?? undefined })
+                  sendMessage.mutate({ type: msg.type, content: msg.content ?? undefined, mediaId: msg.media?.id, replyToId: msg.replyToId ?? undefined })
                 } : undefined}
               />
             </div>
@@ -1082,14 +1076,14 @@ export function ConversationsPage() {
           }
           return prev
         })
-        toast.warning(`You have been unassigned from ${data.userName}'s conversation`)
+        // Toast is fired by the global useSocket hook — this handler only updates the cache
         queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
       }
     }
 
     const handleAssignedToYou = async (data: { conversationId: string; userName: string }) => {
+      // Toast is fired by the global useSocket hook — this handler only updates the cache
       setNewlyAssignedIds(prev => new Set([...prev, data.conversationId]))
-      toast.success(`Assigned to ${data.userName}.`, { duration: 6000, icon: '👤' })
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
       try {
         const res = await convApi.getOne(data.conversationId)
@@ -1259,7 +1253,7 @@ export function ConversationsPage() {
     return null
   }, [allConversations, selectedId])
 
-  const selectedConv = React.useMemo(() => allConversations.find(c => c.id === effectiveSelectedId), [allConversations, effectiveSelectedId])
+  const selectedConv = useMemo(() => allConversations.find(c => c.id === effectiveSelectedId), [allConversations, effectiveSelectedId])
 
   const tabFiltered = useMemo(() => {
     if (activeTab === 'archived') return allConversations.filter(c => c.archivedAt)
@@ -1281,7 +1275,7 @@ export function ConversationsPage() {
       : tabFiltered
     , [search, tabFiltered])
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+  const handleScroll = useCallback((e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 100 && hasNextPage && !isFetchingNextPage) fetchNextPage()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])

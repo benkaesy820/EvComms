@@ -5,13 +5,13 @@ import multipart from '@fastify/multipart'
 import { createHmac } from 'node:crypto'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { serverState } from './state.js'
-import { initSocket, closeIO } from './socket/index.js'
+import { initSocket, closeIO, getIO } from './socket/index.js'
 import { authRoutes } from './auth/index.js'
 import { conversationRoutes, messageRoutes, reactionRoutes } from './routes/conversations.js'
 import { mediaRoutes, stopStreamRateLimitCleanup } from './routes/media.js'
 import { adminUserRoutes } from './routes/adminUsers.js'
 import { adminAdminRoutes } from './routes/adminAdmins.js'
-import { healthRoutes } from './routes/health.js'
+import { healthRoutes, markReady } from './routes/health.js'
 import { preferencesRoutes } from './routes/preferences.js'
 import { userRoutes } from './routes/users.js'
 import { announcementRoutes } from './routes/announcements.js'
@@ -111,6 +111,31 @@ fastify.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply
 
   // Register health BEFORE the auth hook so load-balancers never get 401 (#2)
   await fastify.register(healthRoutes)
+
+  // sw.js must NOT get Cache-Control: no-store — the browser's SW registry
+  // uses its own update algorithm (checks every 24 h or on navigation).
+  // We serve it with no-cache so the browser always revalidates but can still
+  // use a cached copy while offline. This must be registered BEFORE the global
+  // security-headers hook which sets no-store on everything else.
+  fastify.get('/sw.js', async (_req: FastifyRequest, reply: FastifyReply) => {
+    reply
+      .header('Content-Type', 'application/javascript; charset=utf-8')
+      .header('Cache-Control', 'no-cache')
+      .header('Service-Worker-Allowed', '/')
+    // In production the frontend is served by a separate static host.
+    // This route only matters when the backend itself serves the frontend
+    // (e.g. a single-dyno PaaS setup). If the file is missing we return 404
+    // rather than crashing so the health check stays green.
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const swPath = path.join(process.cwd(), 'public', 'sw.js')
+    try {
+      const content = await fs.readFile(swPath, 'utf-8')
+      return reply.send(content)
+    } catch {
+      return reply.code(404).send('Service worker not found')
+    }
+  })
 
   fastify.addHook('onRequest', authenticateRequest)
 
@@ -274,22 +299,56 @@ export async function startServer(): Promise<FastifyInstance> {
 
   const address = await fastify.listen({ port: env.port, host: env.host })
   logger.info({ address, env: env.nodeEnv }, 'Server started')
+  markReady()
 
   const httpServer = fastify.server
   initSocket(httpServer)
 
   mediaCleanupService.start()
 
+  // Distributed lock: only one instance runs periodic cleanup at a time.
+  // Prevents N instances from doing redundant work simultaneously.
+  const INSTANCE_ID = `instance-${process.pid}-${Date.now()}`
+
+  async function tryAcquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+    const redis = (await import('./redis.js')).getRedis()
+    if (!redis) return true // No Redis = single-instance mode, always run
+    try {
+      const acquired = await redis.set(key, INSTANCE_ID, 'EX', ttlSeconds, 'NX')
+      return acquired === 'OK'
+    } catch {
+      return true // Redis error = fall back to running locally
+    }
+  }
+
   const sessionCleanupInterval = setInterval(async () => {
     try {
+      const lockTtl = Math.ceil(config.presence.sessionDbCleanupIntervalMs / 1000) + 30
+      const hasLock = await tryAcquireLock('lock:session-cleanup', lockTtl)
+      if (!hasLock) return // Another instance is handling it
       const result = await cleanupExpiredSessions()
       if (result.cleaned > 0) {
-        logger.info({ cleaned: result.cleaned }, 'Expired sessions cleaned')
+        logger.info({ cleaned: result.cleaned, usersAffected: result.expiredByUser.size }, 'Expired sessions cleaned')
+        const io = getIO()
+        if (io) {
+          for (const [userId, sessionIds] of result.expiredByUser) {
+            io.to(`user:${userId}`).emit('session:expired', { sessionIds })
+          }
+        }
       }
     } catch (error) {
       logger.error({ error }, 'Session cleanup failed')
     }
   }, config.presence.sessionDbCleanupIntervalMs)
+
+  // Media cleanup: also use distributed lock
+  const origMediaCleanupStart = mediaCleanupService.start.bind(mediaCleanupService)
+  mediaCleanupService.start = async function() {
+    const lockTtl = 3600 // 1 hour lock
+    const hasLock = await tryAcquireLock('lock:media-cleanup', lockTtl)
+    if (!hasLock) return // Another instance holds the lock
+    return origMediaCleanupStart()
+  }
 
   let statsInterval: NodeJS.Timeout | undefined
 
@@ -327,6 +386,10 @@ export async function startServer(): Promise<FastifyInstance> {
 
       await closeIO()
 
+      // Close Redis connection gracefully
+      const { closeRedis } = await import('./redis.js')
+      await closeRedis()
+
       await fastify.close()
       await closeDb()
 
@@ -347,8 +410,44 @@ export async function startServer(): Promise<FastifyInstance> {
     gracefulShutdown('uncaughtException')
   })
 
+  // Transient infrastructure failures (Redis reconnecting, DB stream expiry)
+  // should NOT crash the entire server — they have their own fallback paths.
+  const TRANSIENT_ERROR_PATTERNS = [
+    'MaxRetriesPerRequestError',
+    'ETIMEDOUT',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'STREAM_EXPIRED',
+    'stream has expired',
+    'WebSocket was closed',
+    'SERVER_ERROR',
+    '503',
+  ]
+
+  function isTransientError(reason: unknown): boolean {
+    if (reason instanceof Error) {
+      return TRANSIENT_ERROR_PATTERNS.some(p =>
+        reason.message.includes(p) || reason.name.includes(p)
+      )
+    }
+    if (typeof reason === 'string') {
+      return TRANSIENT_ERROR_PATTERNS.some(p => reason.includes(p))
+    }
+    return false
+  }
+
   process.on('unhandledRejection', (reason) => {
-    logger.fatal({ reason }, 'Unhandled rejection')
+    if (isTransientError(reason)) {
+      logger.warn({
+        reason: reason instanceof Error ? { message: reason.message, stack: reason.stack } : reason,
+        type: typeof reason
+      }, 'Unhandled transient rejection — not shutting down (has fallback path)')
+      return
+    }
+    logger.fatal({
+      reason: reason instanceof Error ? { message: reason.message, stack: reason.stack } : reason,
+      type: typeof reason
+    }, 'Unhandled rejection')
     gracefulShutdown('unhandledRejection')
   })
 

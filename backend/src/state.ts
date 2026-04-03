@@ -18,11 +18,11 @@
  */
 
 import { LRUCache } from 'lru-cache'
-import { EventEmitter } from 'events'
-import { getConfig, getMemoryConfig, getCleanupConfig } from './lib/config.js'
+import { getConfig, getMemoryConfig, getCleanupConfig, getSessionConfig } from './lib/config.js'
+import { clusterBus } from './lib/events.js'
 import { logger } from './lib/logger.js'
 
-export const clusterBus = new EventEmitter()
+export { clusterBus }
 
 // ============================================================================
 // INTERFACES
@@ -222,12 +222,15 @@ class StateManager {
       }
     })
 
+    const sessionCfg = getSessionConfig()
+
     this.sessionValidationCache = new LRUCache({
       max: memCfg.sessionCache.max,
       maxSize: memCfg.sessionCache.maxSizeBytes,
       sizeCalculation: () => memCfg.sessionCache.entrySizeBytes,
+      ttl: sessionCfg.validationTTLMs,
       allowStale: false,
-      updateAgeOnGet: false, // No TTL
+      updateAgeOnGet: false,
       dispose: (value, key) => {
         this.memoryStats.sessionCache -= memCfg.sessionCache.entrySizeBytes
         logger.debug({ key }, 'Session validation evicted')
@@ -349,6 +352,22 @@ class StateManager {
       this.checkMemoryUsage()
     }, cleanupCfg.memoryCheckIntervalMs)
 
+    // Listen for config changes and react to relevant sections
+    clusterBus.on('config:changed', (data: { sections: string[] }) => {
+      if (data.sections.includes('session')) {
+        // Session config changed (maxDevices, token TTLs, validation TTL)
+        // Clear all session validation caches — they'll be re-validated on next request with new TTLs
+        logger.info({ count: this.sessionValidationCache.size }, 'Session config changed — clearing all session validation caches')
+        this.sessionValidationCache.clear()
+        this.memoryStats.sessionCache = 0
+      }
+      if (data.sections.includes('presence') || data.sections.includes('cache')) {
+        // Presence or cache config changed — restart cleanup intervals with new values
+        logger.info('Presence/cache config changed — restarting cleanup intervals')
+        this.restartCleanupIntervals()
+      }
+    })
+
     this.initialized = true
     this.initLock = false
 
@@ -368,6 +387,23 @@ class StateManager {
     this.clearAll()
     this.initialized = false
     logger.info('State manager stopped')
+  }
+
+  restartCleanupIntervals(): void {
+    const cleanupCfg = getCleanupConfig()
+
+    if (this.cleanupInterval) clearInterval(this.cleanupInterval)
+    if (this.memoryCheckInterval) clearInterval(this.memoryCheckInterval)
+
+    this.cleanupInterval = setInterval(() => {
+      this.runCleanup()
+    }, cleanupCfg.intervalMs)
+
+    this.memoryCheckInterval = setInterval(() => {
+      this.checkMemoryUsage()
+    }, cleanupCfg.memoryCheckIntervalMs)
+
+    logger.info('Cleanup intervals restarted with new config')
   }
 
   // ==========================================================================
@@ -433,9 +469,13 @@ class StateManager {
     return this.sessionValidationCache.get(`${userId}:${sessionId}`)
   }
 
-  setSessionValidationCache(userId: string, sessionId: string, valid: boolean, _ttlMs?: number): void {
+  setSessionValidationCache(userId: string, sessionId: string, valid: boolean, ttlMs?: number): void {
     const key = `${userId}:${sessionId}`
-    this.sessionValidationCache.set(key, valid)
+    if (ttlMs !== undefined) {
+      this.sessionValidationCache.set(key, valid, { ttl: ttlMs })
+    } else {
+      this.sessionValidationCache.set(key, valid)
+    }
     this.memoryStats.sessionCache += 100
     logger.debug({ userId, sessionId, valid }, 'Session validation cached')
   }

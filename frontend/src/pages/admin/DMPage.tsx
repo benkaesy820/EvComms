@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Crown, Shield, MessageCircle, Menu, ChevronDown, ChevronRight, Users, PanelLeftClose, PanelLeft, Eraser, CheckSquare, Square } from 'lucide-react'
+import { Crown, Shield, MessageCircle, Menu, ChevronDown, ChevronRight, Users, PanelLeftClose, PanelLeft, Eraser, CheckSquare, Square, Search, X, ArrowLeft } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { Input } from '@/components/ui/input'
 import { cn, getInitials } from '@/lib/utils'
+import type { DirectMessage } from '@/lib/schemas'
 import { useDMConversations, useDMMessages, useSendDM, useDeleteDM, useDMReaction, useMarkDMRead, useClearDM, useBulkDeleteDM } from '@/hooks/useDM'
 import { useAuthStore } from '@/stores/authStore'
 import { useAdminList } from '@/hooks/useUsers'
@@ -60,14 +62,8 @@ export function DMPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('partner'))
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+  const [mobileOpen, setMobileOpen] = useState(!searchParams.get('partner') && (typeof window !== 'undefined' ? window.innerWidth < 768 : false))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    // Never restore a collapsed sidebar on mobile — the Sheet handles navigation there
     if (typeof window !== 'undefined' && window.innerWidth < 768) return false
     try { return localStorage.getItem('dm-sidebar-collapsed') === 'true' } catch { return false }
   })
@@ -76,12 +72,26 @@ export function DMPage() {
     localStorage.setItem('dm-sidebar-collapsed', String(next))
     return next
   }), [])
-  const [mobileOpen, setMobileOpen] = useState(!searchParams.get('partner') && isMobile)
   const setReplyTo = useChatStore(s => s.setReplyTo)
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
-  // Collapsible sidebar sections
   const [convosCollapsed, setConvosCollapsed] = useState(false)
   const [newCollapsed, setNewCollapsed] = useState(false)
+  const [contactSearch, setContactSearch] = useState('')
+
+  // Single resize listener — handles both isMobile and mobileOpen
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (!mobile) {
+        setMobileOpen(false)
+      } else if (!searchParams.get('partner')) {
+        setMobileOpen(true)
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [searchParams])
 
   const clearDM = useClearDM()
   const bulkDeleteDM = useBulkDeleteDM()
@@ -127,23 +137,27 @@ export function DMPage() {
     }
   }, [selectedIds, selectedId, bulkDeleteDM, exitSelectMode])
 
+  // Swipe-to-go-back on mobile
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isMobile || !selectedId) return
+    swipeStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }, [isMobile, selectedId])
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!swipeStartRef.current || !isMobile || !selectedId) return
+    const dx = e.changedTouches[0].clientX - swipeStartRef.current.x
+    const dy = e.changedTouches[0].clientY - swipeStartRef.current.y
+    if (dx > 80 && Math.abs(dy) < 60) {
+      setSelectedId(null)
+      setSearchParams({}, { replace: true })
+    }
+    swipeStartRef.current = null
+  }, [isMobile, selectedId, setSearchParams])
+
   // Fix: Clear global reply state when leaving DM page
   useEffect(() => {
     return () => setReplyTo(null)
   }, [setReplyTo])
-
-  // Fix: Handle resize properly to toggle mobile modal safely
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768) {
-        setMobileOpen(false)
-      } else if (!searchParams.get('partner')) {
-        setMobileOpen(true)
-      }
-    }
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [searchParams])
 
   // Fix: Track ALL online users globally for the contact list
   useEffect(() => {
@@ -224,6 +238,22 @@ export function DMPage() {
       (a) => a.id !== currentUser?.id && !contactIds.has(a.id)
     )
   }, [conversations, allAdmins, currentUser?.id])
+
+  // Filter contacts by search query
+  const searchLower = contactSearch.toLowerCase()
+  const filteredConversations = useMemo(() =>
+    searchLower
+      ? conversations.filter(c => c.partner.name.toLowerCase().includes(searchLower))
+      : conversations
+  , [conversations, searchLower])
+  const filteredNewContacts = useMemo(() =>
+    searchLower
+      ? newContacts.filter(a => a.name.toLowerCase().includes(searchLower))
+      : newContacts
+  , [newContacts, searchLower])
+  const hasSearchResults = searchLower && (filteredConversations.length > 0 || filteredNewContacts.length > 0)
+  const hasNoSearchResults = searchLower && filteredConversations.length === 0 && filteredNewContacts.length === 0
+
   const reactionMut = useDMReaction(selectedId || '')
 
   const [partnerTyping, setPartnerTyping] = useState(false)
@@ -257,21 +287,46 @@ export function DMPage() {
 
   const ContactList = () => (
     <>
-      <div className="px-4 py-3 border-b shrink-0 z-10 bg-background flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
-            <MessageCircle className="h-4 w-4 text-primary" />
+      <div className="px-4 py-3 border-b shrink-0 z-10 bg-background space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
+              <MessageCircle className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold">Direct Messages</h2>
+              <p className="text-[10px] text-muted-foreground">Admin-to-admin</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-bold">Direct Messages</h2>
-            <p className="text-[10px] text-muted-foreground">Admin-to-admin</p>
-          </div>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            className="h-8 pl-8 pr-8 text-xs bg-muted/50 border-0 focus-visible:ring-1 focus-visible:ring-primary/30"
+            placeholder="Search admins..."
+            value={contactSearch}
+            onChange={e => setContactSearch(e.target.value)}
+          />
+          {contactSearch && (
+            <button
+              onClick={() => setContactSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
       <ScrollArea className="flex-1">
         <div className="py-2">
-          {convosLoading && (
+          {hasNoSearchResults && (
+            <p className="text-[11px] text-muted-foreground text-center py-6 px-3">
+              No admins matching "{contactSearch}"
+            </p>
+          )}
+
+          {convosLoading && !searchLower && (
             <div className="px-3 space-y-2 py-1">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-2 p-2 rounded-lg">
@@ -286,22 +341,22 @@ export function DMPage() {
           )}
 
           {/* ── Conversations Section ── */}
-          {conversations.length > 0 && (
+          {(hasSearchResults || (!searchLower && conversations.length > 0)) && (
             <>
               <button
                 className="w-full flex items-center justify-between px-4 py-1.5 text-left hover:bg-accent/30 transition-colors group"
                 onClick={() => setConvosCollapsed(v => !v)}
               >
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Conversations
+                  Conversations{searchLower ? ` (${filteredConversations.length})` : ''}
                 </span>
                 {convosCollapsed
                   ? <ChevronRight className="h-3 w-3 text-muted-foreground" />
                   : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
               </button>
 
-              {!convosCollapsed && conversations.map((conv) => {
-                const unread = (conv as any).unreadCount ?? 0
+              {!convosCollapsed && filteredConversations.map((conv) => {
+                const unread = conv.unreadCount ?? 0
                 return (
                   <button
                     key={conv.partner.id}
@@ -352,21 +407,21 @@ export function DMPage() {
           )}
 
           {/* ── New Contacts Section ── */}
-          {newContacts.length > 0 && (
+          {(hasSearchResults || (!searchLower && newContacts.length > 0)) && (
             <>
               <button
                 className="w-full flex items-center justify-between px-4 py-1.5 text-left hover:bg-accent/30 transition-colors mt-1"
                 onClick={() => setNewCollapsed(v => !v)}
               >
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Start a conversation
+                  Start a conversation{searchLower ? ` (${filteredNewContacts.length})` : ''}
                 </span>
                 {newCollapsed
                   ? <ChevronRight className="h-3 w-3 text-muted-foreground" />
                   : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
               </button>
 
-              {!newCollapsed && newContacts.map((admin) => (
+              {!newCollapsed && filteredNewContacts.map((admin) => (
                 <button
                   key={admin.id}
                   onClick={() => selectPartner(admin.id)}
@@ -402,7 +457,7 @@ export function DMPage() {
             </>
           )}
 
-          {!convosLoading && conversations.length === 0 && newContacts.length === 0 && (
+          {!convosLoading && conversations.length === 0 && newContacts.length === 0 && !searchLower && (
             <p className="text-[11px] text-muted-foreground text-center py-6 px-3">
               No other admins available.
             </p>
@@ -450,12 +505,20 @@ export function DMPage() {
           />
         </div>
       ) : (
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-accent/20 dark:bg-background relative">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-accent/20 dark:bg-background relative" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
           {/* Partner header */}
-          <div className="flex items-center gap-3 px-4 py-2.5 border-b shrink-0 bg-sidebar shadow-sm z-10">
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b shrink-0 bg-sidebar shadow-sm z-10 pt-[max(0.625rem,env(safe-area-inset-top))]">
+            {/* Mobile back button — returns to contact list */}
+            <button
+              onClick={() => { setSelectedId(null); setSearchParams({}, { replace: true }) }}
+              className="md:hidden flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            {/* Mobile contact sheet toggle — shown when no partner selected */}
             <button
               onClick={() => setMobileOpen(true)}
-              className="md:hidden flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              className="md:hidden hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <Menu className="h-4 w-4" />
             </button>
@@ -575,12 +638,12 @@ export function DMPage() {
                         action: hasReacted ? 'remove' : 'add'
                       })
                     }}
-                    onReply={selectMode ? undefined : (m) => setReplyTo(m as any)}
+                    onReply={selectMode ? undefined : (m) => setReplyTo({ id: m.id, content: m.content, type: m.type, sender: { name: m.sender?.name ?? '' } })}
                     onDelete={selectMode ? undefined : (scope) => handleDelete(msg.id, scope)}
-                    onRetry={(msg as any).status === 'FAILED' ? () => {
-                      queryClient.setQueryData<{ pages: Array<{ messages: any[]; hasMore: boolean; success: boolean }> }>(
+                    onRetry={msg.status === 'FAILED' ? () => {
+                      queryClient.setQueryData<{ pages: Array<{ messages: DirectMessage[]; hasMore: boolean; success: boolean }> }>(
                         ['dm-messages', selectedId],
-                        (old) => old ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.filter((m: any) => m.id !== msg.id) })) } : old
+                        (old) => old ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.filter(m => m.id !== msg.id) })) } : old
                       )
                       sendDM.mutate({ type: msg.type, content: msg.content ?? undefined })
                     } : undefined}

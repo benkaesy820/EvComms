@@ -4,10 +4,11 @@ import jwt from 'jsonwebtoken'
 import { ulid } from 'ulid'
 import { eq, and, isNull, gt, ne, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { users, messages, conversations, auditLogs, sessions, media, internalMessages, announcements } from '../db/schema.js'
+import { users, messages, conversations, auditLogs, sessions, media, internalMessages, internalMessageReads, announcements, dmRecipientStatus } from '../db/schema.js'
 import { env } from '../lib/env.js'
 import { getConfig, getCacheConfig, getSessionConfig } from '../lib/config.js'
 import { clusterBus, serverState, addUserToCache, getUserFromCache, removeUserFromCache, getUserConversationId, touchConversationOwner, invalidateSessionCache, getSessionValidationCache, setSessionValidationCache } from '../state.js'
+import { LRUCache } from 'lru-cache'
 import { logger } from '../lib/logger.js'
 import { createAdapter } from '@socket.io/redis-adapter'
 import { getRedis } from '../redis.js'
@@ -65,8 +66,6 @@ interface SocketAuthAttemptEntry {
   resetAt: number
 }
 
-import { LRUCache } from 'lru-cache'
-
 function getConnectionRateConfig() {
   const cfg = getConfig().socket
   return {
@@ -94,6 +93,16 @@ const connectionAttempts = new LRUCache<string, { count: number; resetAt: number
   max: cacheConfig.maxSocketRateLimiters,
   allowStale: false,
   updateAgeOnGet: false
+})
+
+// Tracks which conversation a connected user is ACTIVELY viewing (tab focused + on chat page).
+// Used to suppress push notifications when the user is already looking at the conversation.
+// LRU with TTL: entries expire after 5 minutes of inactivity to prevent memory leaks.
+const activeConversationView = new LRUCache<string, { conversationId: string; focusedAt: number }>({
+  max: 10000,
+  ttl: 5 * 60 * 1000, // 5 minutes
+  allowStale: false,
+  updateAgeOnGet: true,
 })
 
 class SocketValidationError extends Error {
@@ -258,12 +267,13 @@ export function initSocket(httpServer: HttpServer): Server {
 
   const redisClient = getRedis()
   if (redisClient) {
-    const subClient = redisClient.duplicate()
-    subClient.on('error', (err) => {
-      logger.error({ err: err.message }, 'Redis subClient error')
-    })
-    io.adapter(createAdapter(redisClient, subClient))
-    logger.info('Socket.IO successfully bridged to Upstash Redis Adapter')
+    try {
+      const subClient = redisClient.duplicate()
+      subClient.on('error', (err) => {
+        logger.error({ err: err.message }, 'Redis subClient error')
+      })
+      io.adapter(createAdapter(redisClient, subClient))
+      logger.info('Socket.IO successfully bridged to Upstash Redis Adapter')
 
     // --------------------------------------------------------------------------
     // CLUSTER CACHE SYNCHRONIZATION
@@ -274,6 +284,8 @@ export function initSocket(httpServer: HttpServer): Server {
     clusterBus.on('cache:invalidate_status', (payload) => io?.serverSideEmit('cache:invalidate_status', payload))
     clusterBus.on('cache:invalidate_session', (payload) => io?.serverSideEmit('cache:invalidate_session', payload))
     clusterBus.on('cache:invalidate_all_sessions', (payload) => io?.serverSideEmit('cache:invalidate_all_sessions', payload))
+    clusterBus.on('config:changed', (payload) => io?.serverSideEmit('config:changed', payload))
+    clusterBus.on('cache:update_email_preference', (payload) => io?.serverSideEmit('cache:update_email_preference', payload))
 
     // 2. Receive Cluster Mutations (apply locally without re-emitting to prevent loops)
     io.on('cache:update_user', (payload: any) => serverState.updateUserCache(payload.userId, payload.updates, false))
@@ -281,6 +293,15 @@ export function initSocket(httpServer: HttpServer): Server {
     io.on('cache:invalidate_status', (payload: any) => serverState.invalidateUsersByStatus(payload.status, false))
     io.on('cache:invalidate_session', (payload: any) => serverState.invalidateSessionCache(payload.userId, payload.sessionId, false))
     io.on('cache:invalidate_all_sessions', (payload: any) => serverState.invalidateAllUserSessions(payload.userId, false))
+    io.on('config:changed', (payload: any) => {
+      try {
+        const { reloadConfig } = require('../lib/config.js')
+        reloadConfig()
+      } catch { /* ignore reload errors on remote instances */ }
+    })
+    io.on('cache:update_email_preference', (payload: any) => {
+      serverState.emailPreferences.set(payload.userId, payload.value)
+    })
     
     // 3. Respond to multi-pod presence snapshots
     io.on('presence:snapshot_request', (cb) => {
@@ -288,6 +309,9 @@ export function initSocket(httpServer: HttpServer): Server {
         cb(Array.from(serverState.connectedUsers.keys()))
       }
     })
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Redis adapter setup failed — running without it (single-server mode)')
+    }
   }
 
   io.use((socket, next) => {
@@ -519,11 +543,29 @@ function handleConnection(socket: Socket): void {
   })
 
   socket.on('disconnect', (reason) => {
+    // Clear focus tracking for this socket on disconnect
+    activeConversationView.delete(user.id)
     handleDisconnect(socket, user, reason)
   })
 
   socket.on('error', (err) => {
     logger.error({ userId: user.id, error: err.message }, 'Socket error')
+  })
+
+  // Client emits this when they open or focus a conversation tab.
+  // We use it to suppress push notifications when the user is actively looking at the chat.
+  socket.on('conversation:focus', (data: unknown) => {
+    if (typeof data === 'object' && data !== null && 'conversationId' in data) {
+      const convId = (data as { conversationId: unknown }).conversationId
+      if (typeof convId === 'string' && convId.length > 0) {
+        activeConversationView.set(user.id, { conversationId: convId, focusedAt: Date.now() })
+      }
+    }
+  })
+
+  // Client emits this when they leave or blur the conversation view
+  socket.on('conversation:blur', () => {
+    activeConversationView.delete(user.id)
   })
 
   const clientIp = getSocketClientIp(socket)
@@ -574,6 +616,45 @@ function handleConnection(socket: Socket): void {
         isTyping: parsed.isTyping,
       })
     })
+
+    // internal:mark_read — client fires this when InternalChatPage mounts/gains focus.
+    // We upsert the read timestamp and broadcast a read_receipt so other admins get
+    // group-chat blue-tick behaviour without polling.
+    socket.on('internal:mark_read', () => {
+      if (!checkSocketRateLimit(user.id, 10, 120)) return // 10/min, 120/hr — low-traffic event
+      wrapAsyncHandler(async () => {
+        const now = new Date()
+        // Find the latest message id so we can anchor the read pointer
+        const latest = await db.query.internalMessages.findFirst({
+          where: isNull(internalMessages.deletedAt),
+          orderBy: (t, { desc }) => [desc(t.createdAt)],
+          columns: { id: true },
+        })
+        await db.insert(internalMessageReads)
+          .values({
+            id: ulid(),
+            userId: user.id,
+            lastReadMessageId: latest?.id ?? null,
+            lastReadAt: now,
+            unreadCount: 0,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: internalMessageReads.userId,
+            set: {
+              lastReadMessageId: latest?.id ?? null,
+              lastReadAt: now,
+              unreadCount: 0,
+              updatedAt: now,
+            },
+          })
+        // Broadcast to all OTHER admins so their blue-tick state updates live
+        socket.to('admins').emit('internal:read_receipt', {
+          userId: user.id,
+          readAt: now.getTime(),
+        })
+      })
+    })
   }
 
   socket.on('messages:mark_read', (data: unknown) => {
@@ -612,6 +693,42 @@ function handleConnection(socket: Socket): void {
       return
     }
     wrapAsyncHandler(() => handleTypingStop(socket, user, parsed.data.conversationId))
+  })
+
+  socket.on('dm:mark_read', (data: unknown) => {
+    wrapAsyncHandler(async () => {
+      // Very low frequency event — max 20 per minute is extremely generous for DMs
+      if (!checkSocketRateLimit(user.id, 20, 120)) return
+      if (!isAdmin({ role: user.role })) return
+      
+      const parsed = (typeof data === 'object' && data !== null && 'partnerId' in data)
+        ? { partnerId: String((data as { partnerId: unknown }).partnerId) }
+        : null
+      
+      if (!parsed || parsed.partnerId.length !== 26) return
+      
+      const now = new Date()
+      await db.insert(dmRecipientStatus)
+        .values({
+          id: ulid(),
+          userId: user.id,
+          partnerId: parsed.partnerId,
+          lastReadAt: now,
+          unreadCount: 0,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [dmRecipientStatus.userId, dmRecipientStatus.partnerId],
+          set: {
+            unreadCount: 0,
+            lastReadAt: now,
+            updatedAt: now,
+          },
+        })
+
+      // Inform partner right away so they see blue-ticks
+      emitToUser(parsed.partnerId, 'dm:read', { partnerId: user.id, readAt: now.getTime() })
+    })
   })
 
   socket.on('dm:typing', (data: unknown) => {
@@ -1042,23 +1159,33 @@ async function handleMessageSend(socket: Socket, user: SocketUser, data: unknown
     // Email notification for user
     await queueEmailNotification(conversation.userId).catch(e => logger.error({ e }, 'Socket Email enqueue failed'))
 
-    // Web push: notify the user if they are NOT currently connected via WebSocket
-    if (!serverState.connectedUsers.has(conversation.userId)) {
-      const senderName = getUserFromCache(user.id)?.name ?? 'Support'
-      const preview = sanitizedContent
-        ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
-        : context.type === 'IMAGE' ? '📷 Image' : '📎 File'
-      sendPushToUser(conversation.userId, {
-        title: senderName,
-        body: preview,
-        tag: `conv:${context.conversationId}`,
-        data: { conversationId: context.conversationId, url: '/' },
-      }).catch(e => logger.warn({ e }, 'Push to user failed'))
+    // Web push: notify the user only if they are NOT actively viewing this conversation.
+    // We check both WebSocket presence AND whether they have the tab focused on this chat.
+    const userActiveView = activeConversationView.get(conversation.userId)
+    const userIsActivelyViewing = userActiveView?.conversationId === context.conversationId
+    if (!serverState.connectedUsers.has(conversation.userId) || !userIsActivelyViewing) {
+      // Only send push if not connected at all, OR connected but not actively viewing this chat
+      if (!serverState.connectedUsers.has(conversation.userId)) {
+        const senderName = getUserFromCache(user.id)?.name ?? 'Support'
+        const preview = sanitizedContent
+          ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
+          : context.type === 'IMAGE' ? '📷 Image' : '📎 File'
+        sendPushToUser(conversation.userId, {
+          title: senderName,
+          body: preview,
+          tag: `conv:${context.conversationId}`,
+          data: { conversationId: context.conversationId, url: '/home/chat' },
+        }).catch(e => logger.warn({ e }, 'Push to user failed'))
+      }
+      // If connected but not actively viewing — the socket message:new will handle toast/sound
     }
   } else {
-    // User sent a message — push to the assigned admin if they are offline
+    // User sent a message — notify the assigned admin if they are offline
     const targetAdminId = conversation.assignedAdminId
-    if (targetAdminId && !serverState.connectedUsers.has(targetAdminId)) {
+    const adminActiveView = targetAdminId ? activeConversationView.get(targetAdminId) : null
+    const adminIsActivelyViewing = adminActiveView?.conversationId === context.conversationId
+    if (targetAdminId && !serverState.connectedUsers.has(targetAdminId) && !adminIsActivelyViewing) {
+      // Push notification
       const userInfo = getUserFromCache(conversation.userId)
       const preview = sanitizedContent
         ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
@@ -1069,6 +1196,9 @@ async function handleMessageSend(socket: Socket, user: SocketUser, data: unknown
         tag: `conv:${context.conversationId}`,
         data: { conversationId: context.conversationId, url: '/admin/conversations' },
       }).catch(e => logger.warn({ e }, 'Push to admin failed'))
+
+      // Email fallback for offline admins — debounced, batches multiple conversations
+      import('../services/emailQueue.js').then(m => m.queueAdminEmailNotification(targetAdminId)).catch(() => {})
     }
   }
 

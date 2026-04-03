@@ -7,7 +7,8 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function getInitials(name: string): string {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+  if (!name || !name.trim()) return '?'
+  return name.split(' ').filter(Boolean).map((n) => n[0]).join('').toUpperCase().slice(0, 2)
 }
 
 /**
@@ -35,7 +36,8 @@ export function parseTimestamp(value: unknown): Date {
     if (!isNaN(d.getTime())) return d
   }
 
-  return new Date() // fallback to now for null/undefined/invalid
+  if (value === null || value === undefined) return new Date() // fallback to now — avoids "55 years ago" in UI
+  return new Date() // truly invalid input — fallback to now
 }
 
 export function formatFileSize(bytes: number): string {

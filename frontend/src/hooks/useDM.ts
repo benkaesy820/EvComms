@@ -7,6 +7,7 @@ import { toast } from '@/components/ui/sonner'
 import type { DirectMessage } from '@/lib/schemas'
 import { useAuthStore } from '@/stores/authStore'
 import { audio } from '@/lib/audio'
+import { showOsNotification } from '@/lib/notify'
 
 const KEY = (adminId: string) => ['dm', adminId]
 export const CONVOS_KEY = ['dm', 'conversations']
@@ -33,15 +34,15 @@ export function useDMConversations() {
 
       // Sound: only play for inbound messages
       if (isInbound) {
-        const isOnDMPage = window.location.pathname.includes('/admin/dm')
-        const urlPartnerId = window.location.pathname.split('/').pop()
-        const isViewingThisThread = isOnDMPage && urlPartnerId === partnerId
+        // Check if user is actively viewing this exact thread (partner ID is in query param)
+        const urlParams = new URLSearchParams(window.location.search)
+        const urlPartnerId = urlParams.get('partner')
+        const isViewingThisThread = urlPartnerId === partnerId
         const isFocused = document.hasFocus() && isViewingThisThread
 
         if (isFocused) {
           audio.playPop()
         } else if (isViewingThisThread) {
-          // On the right thread but unfocused -> ding, no toast
           audio.playDing()
         } else {
           audio.playDing()
@@ -56,6 +57,7 @@ export function useDMConversations() {
               onClick: () => { window.location.href = `/admin/dm/${partnerId}` }
             }
           })
+          showOsNotification(senderName, preview, `dm:${partnerId}`, `/admin/dm/${partnerId}`)
         }
       }
 
@@ -72,8 +74,33 @@ export function useDMConversations() {
           if (!old) return old
           const exists = old.conversations.some((c) => c.partner.id === partnerId)
           if (!exists) {
-            queryClient.invalidateQueries({ queryKey: CONVOS_KEY })
-            return old
+            // Optimistically insert new conversation instead of full refetch
+            const sender = message.sender as { id?: string; name?: string; role?: string } | undefined
+            const partnerData = message.senderId === currentUserId
+              ? { id: message.recipientId, name: 'Unknown', role: 'ADMIN' }
+              : (sender ?? { id: message.senderId, name: 'Unknown', role: 'ADMIN' })
+            const newConvo: DMConversation = {
+              partner: { id: partnerData.id!, name: partnerData.name ?? 'Unknown', role: (partnerData.role ?? 'ADMIN') as 'ADMIN' | 'SUPER_ADMIN' },
+              lastMessage,
+              unreadCount: isInbound ? 1 : 0,
+            }
+            return {
+              ...old,
+              conversations: [newConvo, ...old.conversations],
+            }
+          }
+          // Don't increment unread if user is actively viewing this exact thread
+          const urlParams = new URLSearchParams(window.location.search)
+          const urlPartnerId = urlParams.get('partner')
+          const isViewingThisThread = urlPartnerId === partnerId
+          if (isViewingThisThread) {
+            return {
+              ...old,
+              conversations: old.conversations.map((c) => {
+                if (c.partner.id !== partnerId) return c
+                return { ...c, lastMessage }
+              }),
+            }
           }
           return {
             ...old,
@@ -83,12 +110,20 @@ export function useDMConversations() {
                 ...c,
                 lastMessage,
                 // Only bump unread if the message came from the other person
-                ...(isInbound && { unreadCount: ((c as any).unreadCount ?? 0) + 1 }),
+                ...(isInbound && { unreadCount: (c.unreadCount ?? 0) + 1 }),
               }
             }),
           }
         },
       )
+
+      // Also update global unread total optimistically
+      if (isInbound) {
+        queryClient.setQueryData<{ success: boolean; unreadCount: number }>(
+          DM_UNREAD_KEY,
+          (old) => old ? { ...old, unreadCount: (old.unreadCount ?? 0) + 1 } : old,
+        )
+      }
     }
     socket.on('dm:message', onDM)
     return () => { socket.off('dm:message', onDM) }
@@ -160,6 +195,38 @@ export function useDMMessages(adminId: string | null) {
 
       const currentUserId = useAuthStore.getState().user?.id
 
+      // ── Own message sent — play confirmation sound ────────────────────────────
+      if (message.senderId === currentUserId) {
+        if (document.hasFocus()) {
+          audio.playPop()
+        } else {
+          audio.playDing()
+        }
+      }
+
+      // ── Incoming message — play notification sound ────────────────────────────
+      // Global useSocket handles the off-page case (playDing + toast + OS banner).
+      // Here we cover the on-page cases so the DM thread always gives audio feedback.
+      if (message.senderId !== currentUserId) {
+        const isOnDMPage = window.location.pathname.startsWith('/admin/dm')
+        if (isOnDMPage) {
+          if (document.hasFocus()) {
+            audio.playPop()
+          } else {
+            audio.playDing()
+            showOsNotification(
+              data.message.sender?.name ?? 'Direct Message',
+              message.content
+                ? (message.content.length > 60 ? message.content.slice(0, 60) + '\u2026' : message.content)
+                : '\ud83d\udcce Attachment',
+              `dm:${message.senderId}`,
+              '/admin/dm'
+            )
+          }
+        }
+        // Off-page sound/toast is handled by useSocket's global dm:message handler.
+      }
+
       queryClient.setQueryData<{ pages: Array<{ messages: DirectMessage[]; hasMore: boolean }> }>(
         KEY(adminId),
         (old) => {
@@ -227,6 +294,30 @@ export function useDMMessages(adminId: string | null) {
     socket.on('dm:message:deleted', onDeleted)
     socket.on('dm:message:reaction', onReaction)
 
+    // Bulk delete: remove all specified message IDs from the thread cache
+    const onBulkDeleted = (data: { adminId: string; ids: string[] }) => {
+      if (!adminId) return
+      // The event is emitted to both parties; adminId in the payload is the OTHER user
+      queryClient.setQueryData<{ pages: Array<{ messages: DirectMessage[]; hasMore: boolean }> }>(
+        KEY(adminId),
+        (old) => {
+          if (!old) return old
+          const removed = new Set(data.ids)
+          return {
+            ...old,
+            pages: old.pages.map(p => ({
+              ...p,
+              messages: p.messages.filter(m => !removed.has(m.id)),
+            })),
+          }
+        }
+      )
+      // Deleted messages may have been unread — re-fetch the badge count so it
+      // doesn't stay inflated after the messages are gone from the thread cache.
+      queryClient.invalidateQueries({ queryKey: DM_UNREAD_KEY })
+    }
+    socket.on('dm:messages:bulk_deleted', onBulkDeleted)
+
     // Partner opened thread → flip our SENT → READ (double blue tick)
     const onRead = (data: { partnerId: string; readAt: number }) => {
       if (data.partnerId !== adminId) return
@@ -256,6 +347,7 @@ export function useDMMessages(adminId: string | null) {
       socket.off('dm:message', onDM)
       socket.off('dm:message:deleted', onDeleted)
       socket.off('dm:message:reaction', onReaction)
+      socket.off('dm:messages:bulk_deleted', onBulkDeleted)
       socket.off('dm:read', onRead)
     }
   }, [adminId, queryClient])
@@ -443,7 +535,7 @@ export function useMarkDMRead(adminId: string | null) {
     if (socket?.connected) {
       socket.emit('dm:mark_read', { partnerId: adminId })
     } else {
-      adminDM.markAsRead(adminId).catch(() => { /* ignore */ })
+      adminDM.markAsRead(adminId).catch(() => { /* fire-and-forget mark-as-read — non-critical */ })
     }
 
     // Optimistically zero unread badge for this conversation
@@ -451,42 +543,21 @@ export function useMarkDMRead(adminId: string | null) {
       CONVOS_KEY,
       (old) => {
         if (!old) return old
+        const convo = old.conversations.find(c => c.partner.id === adminId)
+        const currentUnread = convo?.unreadCount ?? 0
+        if (currentUnread > 0) {
+          // Decrement global total by the amount we're clearing
+          queryClient.setQueryData<{ success: boolean; unreadCount: number }>(
+            DM_UNREAD_KEY,
+            (old2) => old2 ? { ...old2, unreadCount: Math.max(0, (old2.unreadCount ?? 0) - currentUnread) } : old2,
+          )
+        }
         return {
           ...old,
           conversations: old.conversations.map((c) =>
             c.partner.id === adminId ? { ...c, unreadCount: 0 } : c
           ),
         }
-      }
-    )
-
-    // Also mark all inbound messages in this thread as READ locally
-    // (so the partner sees blue ticks on their side immediately)
-    queryClient.setQueryData<{ pages: Array<{ messages: DirectMessage[]; hasMore: boolean }> }>(
-      KEY(adminId),
-      (old) => {
-        if (!old) return old
-        const currentUserId = useAuthStore.getState().user?.id
-        return {
-          ...old,
-          pages: old.pages.map(p => ({
-            ...p,
-            messages: p.messages.map(m => {
-              // Only inbound messages (from partner) need to be "acknowledged"
-              if (m.senderId === currentUserId) return m
-              return m
-            }),
-          })),
-        }
-      }
-    )
-
-    queryClient.setQueryData<{ success: boolean; unreadCount: number }>(
-      DM_UNREAD_KEY,
-      (old) => {
-        if (!old) return old
-        queryClient.invalidateQueries({ queryKey: DM_UNREAD_KEY })
-        return old
       }
     )
   }, [adminId, queryClient])

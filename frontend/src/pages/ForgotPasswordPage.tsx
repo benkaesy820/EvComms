@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react'
+import { AlertCircle, CheckCircle, ArrowLeft, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +10,13 @@ import { AuthLayout } from '@/components/layout/AuthLayout'
 import { forgotPasswordSchema, type ForgotPasswordInput } from '@/lib/schemas'
 import { auth, ApiError } from '@/lib/api'
 import { LeafLogo } from '@/components/ui/LeafLogo'
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@')
+  if (!local || !domain) return email
+  const masked = local[0] + '•'.repeat(Math.max(local.length - 2, 1)) + local[local.length - 1]
+  return `${masked}@${domain}`
+}
 
 export function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +57,7 @@ export function ForgotPasswordPage() {
             <h2 className="text-lg font-bold">Email Sent</h2>
             <p className="text-sm text-muted-foreground leading-relaxed max-w-xs mx-auto">
               If an account exists for{' '}
-              <span className="font-semibold text-foreground break-all">{submittedEmail}</span>
+              <span className="font-semibold text-foreground">{maskEmail(submittedEmail)}</span>
               , you&apos;ll receive a password reset link shortly.
             </p>
             <p className="text-xs text-muted-foreground">Wrong address? Go back and try again.</p>
@@ -88,6 +95,7 @@ export function ForgotPasswordPage() {
             type="email"
             placeholder="you@company.com"
             autoComplete="email"
+            autoFocus
             className="h-11 rounded-xl bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-2"
             {...register('email')}
           />
@@ -104,7 +112,10 @@ export function ForgotPasswordPage() {
           {isSubmitting ? (
             <LeafLogo className="h-4 w-4 animate-spin" />
           ) : (
-            'Send Reset Link'
+            <>
+              <Mail className="h-4 w-4" />
+              Send Reset Link
+            </>
           )}
         </Button>
 

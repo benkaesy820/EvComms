@@ -24,9 +24,10 @@ import { cn, formatRelativeTime, getInitials, parseTimestamp } from '@/lib/utils
 import { useAdminUserDetail, useStatusHistory, useAuditLogs, useUpdateUserStatus, useInitiatePasswordReset, useRevokeSessions, useUpdateMediaPermission } from '@/hooks/useUsers'
 import { conversations as convApi } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
+import { getSocket } from '@/lib/socket'
 import type { Status, User } from '@/lib/schemas'
 import { LeafLogo } from '@/components/ui/LeafLogo'
 
@@ -111,6 +112,24 @@ export function UserDetailPage() {
   const resetPassword = useInitiatePasswordReset()
   const revokeSessions = useRevokeSessions()
   const queryClient = useQueryClient()
+
+  // Live updates: invalidate this user's detail when status, profile, or media permission changes.
+  // useAdminUserDetail has staleTime:0 so invalidation triggers an immediate refetch.
+  useEffect(() => {
+    const socket = getSocket()
+    if (!socket || !userId) return
+    const invalidate = (_data: unknown) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user', userId] })
+    }
+    socket.on('user:status_changed', invalidate)
+    socket.on('user:updated', invalidate)
+    socket.on('user:media_permission_changed', invalidate)
+    return () => {
+      socket.off('user:status_changed', invalidate)
+      socket.off('user:updated', invalidate)
+      socket.off('user:media_permission_changed', invalidate)
+    }
+  }, [userId, queryClient])
 
   const [statusDialog, setStatusDialog] = useState(false)
   const [newStatus, setNewStatus] = useState<Status>('APPROVED')

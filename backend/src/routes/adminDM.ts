@@ -7,7 +7,7 @@ import { directMessages, users, directMessageReactions, media, auditLogs, dmReci
 import { requireAdmin, requireUser, sendError, sendOk } from '../middleware/auth.js'
 import { canDeleteMessage } from '../lib/permissions.js'
 import { sanitizeText, isValidId, anonymizeIpAddress } from '../lib/utils.js'
-import { emitToUser } from '../socket/index.js'
+import { emitToUser, isUserOnlineGlobally } from '../socket/index.js'
 import { serverState, getUserFromCache } from '../state.js'
 import { logger } from '../lib/logger.js'
 import { getConfig } from '../lib/config.js'
@@ -276,8 +276,9 @@ export async function adminDMRoutes(fastify: FastifyInstance) {
 
     emitToUser(adminId, 'dm:message', { message: msg, tempId })
 
-    // Push: notify the recipient if they are offline
-    if (!serverState.connectedUsers.has(adminId)) {
+    // Push: cross-instance online check
+    const recipientOnline = await isUserOnlineGlobally(adminId)
+    if (!recipientOnline) {
       const senderName = getUserFromCache(user.id)?.name ?? 'DM'
       const preview = content
         ? content.slice(0, 80) + (content.length > 80 ? '\u2026' : '')
@@ -536,6 +537,9 @@ export async function adminDMRoutes(fastify: FastifyInstance) {
           updatedAt: now,
         },
       })
+
+    // Notify partner that their outgoing messages have been read
+    emitToUser(adminId, 'dm:read', { partnerId: user.id, readAt: now.getTime() })
 
     return sendOk(reply, { success: true })
   })

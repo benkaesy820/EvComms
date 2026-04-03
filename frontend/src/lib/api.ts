@@ -1038,3 +1038,12 @@ export const adminSearch = {
 }
 
 export { ApiError }
+export const notifications = {
+  getVapidPublicKey: () =>
+    get<{ success: boolean; publicKey: string }>('/notifications/vapid-public-key'),
+  subscribe: (data: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    post<{ success: boolean }>('/notifications/subscribe', data),
+  unsubscribe: (data: { endpoint: string }) =>
+    request<{ success: boolean }>('/notifications/unsubscribe', { method: 'DELETE', body: JSON.stringify(data) }),
+  testPush: () => post<{ success: boolean; message: string }>('/notifications/test-push'),
+}

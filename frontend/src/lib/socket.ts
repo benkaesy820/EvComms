@@ -21,8 +21,10 @@ interface ServerToClientEvents {
   'conversation:unassigned': (data: { conversationId: string; oldAdminId: string; reason: string }) => void
   'conversation:removed': (data: { conversationId: string; userName: string }) => void
   'conversation:assigned_to_you': (data: { conversationId: string; userName: string }) => void
-  'conversation:archived': (data: { conversationId: string; archivedBy: string }) => void
-  'conversation:unarchived': (data: { conversationId: string; unarchivedBy: string }) => void
+  // closingNote is included when emitted to the user (end-user receives it); archivedBy-only shape is for admins
+  'conversation:archived': (data: { conversationId: string; archivedBy: string; closingNote?: string | null }) => void
+  // unarchivedBy is absent when emitted via conversation:reopened to the user
+  'conversation:unarchived': (data: { conversationId: string; unarchivedBy?: string }) => void
   'conversation:new': (data: { conversation: Conversation }) => void
   'conversation:subsidiary_changed': (data: { conversationId: string; subsidiaryId: string | null; changedBy: string }) => void
   'conversation:reopened': (data: { conversationId: string; unarchivedBy?: string }) => void
@@ -48,8 +50,10 @@ interface ServerToClientEvents {
   'user:online': (data: { userId: string; userName: string; status: 'online' }) => void
   'user:offline': (data: { userId: string; userName: string; status: 'offline'; lastSeenAt: number }) => void
 
-  'session:revoked': (data: { sessionId: string; reason: string; revokedAt: number }) => void
   force_logout: (data: { reason: string }) => void
+  'session:created': (data: { sessionId: string }) => void
+  'session:revoked': (data: { sessionId: string }) => void
+  'session:expired': (data: { sessionIds: string[] }) => void
 
   'admin:user_registered': (data: { user: { id: string; email: string; name: string; status: Status; createdAt: number; hasReport?: boolean; reportId?: string | null; reportSubject?: string } }) => void
 
@@ -72,13 +76,33 @@ interface ServerToClientEvents {
   'announcement:comment:new': (data: { announcementId: string; comment: { id: string; content: string; createdAt: Date; user: { id: string; name: string; role: string } } }) => void
   'announcement:comment:deleted': (data: { announcementId: string; commentId: string }) => void
   'announcement:reaction:updated': (data: { announcementId: string; userId: string; emoji: string }) => void
-  'announcement:reaction:added': (data: { announcementId: string; userId: string; emoji: string }) => void
   'announcement:reaction:removed': (data: { announcementId: string; userId: string }) => void
   'announcement:vote:updated': (data: { announcementId: string; upvoteCount: number; downvoteCount: number }) => void
 
+  // DM bulk delete
+  'dm:messages:bulk_deleted': (data: { adminId: string; ids: string[] }) => void
+
+  // Admin bulk-reassignment failure notification
+  'admin:reassignment_failures': (data: { count: number; reason: string }) => void
+
+  // Infrastructure circuit-breaker admin alerts
+  'database:circuit_opened': (data: { state: string; failures: number; timestamp: number }) => void
+  'storage:circuit_opened': (data: { state: string; failures: number; timestamp: number }) => void
+  'storage:circuit_closed': (data: { state: string; timestamp: number }) => void
+  'storage:circuit_recovery': (data: { state: string; timestamp: number }) => void
+
   // Email provider admin events
   'email:circuit_opened': (data: { provider: string; state: string; failures: number; timestamp: number }) => void
+  // NOTE: backend currently only emits email:circuit_opened (not closed/recovery).
+  // These types are defined for forward-compatibility when the backend adds parity with storage circuit events.
+  'email:circuit_closed': (data: { provider: string; state: string; timestamp: number }) => void
+  'email:circuit_recovery': (data: { provider: string; state: string; timestamp: number }) => void
   'email:send_failed': (data: { provider: string; recipient: string; error: string; timestamp: number }) => void
+
+  // Background media cleanup job status (emitted to all admins)
+  'cleanup:error': (data: { error: string; timestamp: number }) => void
+  'cleanup:media_completed': (data: { cleanedCount: number; failedCount: number; totalProcessed: number; timestamp: number }) => void
+  'cleanup:media_failed': (data: { mediaId: string; error: string; timestamp: number }) => void
 
 }
 
@@ -97,6 +121,8 @@ interface ClientToServerEvents {
   'dm:typing': (data: { partnerId: string; isTyping: boolean }) => void
   'presence:update': (data: { status: string }) => void
   'presence:get': () => void
+  'conversation:focus': (data: { conversationId: string }) => void
+  'conversation:blur': () => void
   ping: () => void
 }
 
@@ -138,6 +164,19 @@ export function disconnectSocket(): void {
     socket.disconnect()
     socket = null
   }
+}
+
+// ── Per-tab focused conversation tracker ──────────────────────────────────────
+// Tracks which conversation the admin is actively viewing IN THIS TAB.
+// Module-level = tab-isolated by JS single-thread model, so it never leaks
+// across browser tabs the way localStorage.getItem() does.
+// Set by AdminChatView (ConversationsPage) when a conversation gains/loses focus.
+let _activeFocusedConvId: string | null = null
+export function setActiveFocusedConversation(id: string | null): void {
+  _activeFocusedConvId = id
+}
+export function getActiveFocusedConversation(): string | null {
+  return _activeFocusedConvId
 }
 
 export type { ServerToClientEvents, ClientToServerEvents, Conversation }

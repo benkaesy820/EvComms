@@ -666,7 +666,7 @@ export function AdminsPage() {
           </div>
           {isSuperAdmin && (
             <Button size="sm" className="gap-1.5 rounded-full px-4 shadow-sm shrink-0" onClick={() => setShowCreate(true)}>
-              <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add</span> Admin
+              <Plus className="h-4 w-4" /><span className="hidden sm:inline">Add</span><span className="sm:hidden">New</span> Admin
             </Button>
           )}
         </div>

@@ -1,19 +1,18 @@
 {
     "brand": {
-        "siteName": "Ev Business",
+        "siteName": "Ev Bus",
         "tagline": "",
         "company": "Ev Network",
         "supportEmail": "ev@gmail.com",
         "logoUrl": "",
-        "primaryColor": "#000000",
-        "statResponseTime": "< 2 hrs",
-        "statUptime": "99.9%",
-        "statAvailability": "24/7"
+        "statResponseTime": "",
+        "statUptime": "",
+        "statAvailability": ""
     },
     "storefront": {
         "landing": {
             "heroHeadline": "Support that actually feels human.",
-            "heroSubheadline": "Get a direct line to your support team \u2014 no tickets, no queues. Just a conversation.",
+            "heroSubheadline": "Get a direct line to your support team — no tickets, no queues. Just a conversation.",
             "ctaPrimary": "Get Started Free",
             "ctaSecondary": "Sign In",
             "showHowItWorks": true,
@@ -21,8 +20,8 @@
             "showStats": true
         },
         "contact": {
-            "responseTime": "Typically within 1\u201324 hours",
-            "officeHours": "Monday \u2013 Friday, 9 AM \u2013 6 PM",
+            "responseTime": "Typically within 1–24 hours",
+            "officeHours": "Monday – Friday, 9 AM – 6 PM",
             "address": "",
             "phone": "",
             "showLiveChat": true
@@ -31,7 +30,7 @@
             {
                 "id": "faq_1",
                 "question": "How do I get access to the platform?",
-                "answer": "Click \"Get Started Free\" on the homepage and register with your email address. Your account will be reviewed and approved by our team \u2014 this typically takes a few hours. You'll receive an email confirmation once you're approved."
+                "answer": "Click \"Get Started Free\" on the homepage and register with your email address. Your account will be reviewed and approved by our team — this typically takes a few hours. You'll receive an email confirmation once you're approved."
             },
             {
                 "id": "faq_2",
@@ -41,12 +40,12 @@
             {
                 "id": "faq_3",
                 "question": "Can I upload files and images in my messages?",
-                "answer": "Yes \u2014 media uploads are available to users who have been granted upload permission by a support agent. Supported formats include JPEG, PNG, GIF, MP4, PDF, Word, and Excel files."
+                "answer": "Yes — media uploads are available to users who have been granted upload permission by a support agent. Supported formats include JPEG, PNG, GIF, MP4, PDF, Word, and Excel files."
             },
             {
                 "id": "faq_4",
                 "question": "What happens if my conversation is closed?",
-                "answer": "When a support agent closes a conversation, you'll see a banner in the chat with a note from the agent. You can reopen the conversation at any time by clicking \"Reopen conversation\" \u2014 your full message history is always preserved."
+                "answer": "When a support agent closes a conversation, you'll see a banner in the chat with a note from the agent. You can reopen the conversation at any time by clicking \"Reopen conversation\" — your full message history is always preserved."
             },
             {
                 "id": "faq_5",
@@ -163,7 +162,7 @@
         }
     },
     "session": {
-        "maxDevices": 5,
+        "maxDevices": 1,
         "passwordResetTokenMinutes": 30,
         "refreshTokenDays": 90,
         "accessTokenDays": 30,
@@ -251,7 +250,7 @@
     "server": {
         "maxBodySize": 104857600,
         "requestTimeoutMs": 20000,
-        "shutdownTimeoutMs": 10000,
+        "shutdownTimeoutMs": 25000,
         "statsLogIntervalMs": 300000,
         "hstsMaxAgeSeconds": 31536000,
         "jsonBodyLimit": 1048576,

@@ -29,13 +29,14 @@ function formatAddress(email: string, name: string): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface EmailParams {
-  type: 'accountApproved' | 'accountRejected' | 'accountSuspended' | 'newMessage' | 'passwordReset' | 'passwordResetAdmin' | 'conversationClosed'
+  type: 'accountApproved' | 'accountRejected' | 'accountSuspended' | 'newMessage' | 'adminNewMessage' | 'passwordReset' | 'passwordResetAdmin' | 'conversationClosed'
   userId: string
   reason?: string
   messageCount?: number
   resetToken?: string
   tempPassword?: string
   closingNote?: string
+  conversationCount?: number
 }
 
 export type EmailProvider = 'brevo' | 'gmail'
@@ -54,6 +55,8 @@ function getBrevoCircuitBreaker(): CircuitBreaker {
       recoveryTimeoutMs: cb.recoveryTimeoutMs,
       onStateChange: (state, failures) => {
         if (state === 'OPEN') emitToAdmins('email:circuit_opened', { provider: 'brevo', state, failures, timestamp: Date.now() })
+        else if (state === 'HALF_OPEN') emitToAdmins('email:circuit_recovery', { provider: 'brevo', state, failures, timestamp: Date.now() })
+        else if (state === 'CLOSED') emitToAdmins('email:circuit_closed', { provider: 'brevo', state, failures, timestamp: Date.now() })
       }
     })
   }
@@ -69,6 +72,8 @@ function getGmailCircuitBreaker(): CircuitBreaker {
       recoveryTimeoutMs: cb.recoveryTimeoutMs,
       onStateChange: (state, failures) => {
         if (state === 'OPEN') emitToAdmins('email:circuit_opened', { provider: 'gmail', state, failures, timestamp: Date.now() })
+        else if (state === 'HALF_OPEN') emitToAdmins('email:circuit_recovery', { provider: 'gmail', state, failures, timestamp: Date.now() })
+        else if (state === 'CLOSED') emitToAdmins('email:circuit_closed', { provider: 'gmail', state, failures, timestamp: Date.now() })
       }
     })
   }
@@ -315,6 +320,23 @@ async function sendEmailInternal(params: EmailParams): Promise<void> {
         </div>`
       )
       break
+
+    case 'adminNewMessage': {
+      const convText = params.conversationCount === 1
+        ? 'You have 1 new conversation'
+        : `You have ${params.conversationCount} new conversations with messages`
+      subject = `New messages waiting — ${appName}`
+      htmlContent = buildEmailTemplate(
+        convText,
+        user.name,
+        `<p style="margin: 0 0 32px 0; font-size: 16px; color: #334155; line-height: 1.6;">You have ${params.conversationCount === 1 ? 'a new conversation' : 'new conversations'} with unread messages waiting for your response in the admin dashboard.</p>
+        <div style="text-align: left; margin: 32px 0;">
+          <a href="${appUrl}/admin" style="${primaryBtn}">Open Admin Dashboard</a>
+        </div>
+        <p style="margin: 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+      )
+      break
+    }
 
     default:
       throw new Error(`Unknown email type: ${(params as EmailParams).type}`)

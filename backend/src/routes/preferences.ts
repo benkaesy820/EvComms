@@ -5,7 +5,8 @@ import { ulid } from 'ulid'
 import { db } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
 import { requireApprovedUser, requireUser, sendError, sendOk } from '../middleware/auth.js'
-import { updateUserCache } from '../state.js'
+import { updateUserCache, serverState } from '../state.js'
+import { clusterBus } from '../lib/events.js'
 import { cancelEmailNotification } from '../services/emailQueue.js'
 import { emitToUser } from '../socket/index.js'
 import { anonymizeIpAddress } from '../lib/utils.js'
@@ -70,6 +71,14 @@ export async function preferencesRoutes(fastify: FastifyInstance) {
 
       updateUserCache(user.id, {
         emailNotifyOnMessage: body.data.emailNotifyOnMessage
+      })
+
+      // Broadcast email preference change to all instances so their
+      // local emailPreferences cache stays in sync.
+      serverState.emailPreferences.set(user.id, body.data.emailNotifyOnMessage)
+      clusterBus.emit('cache:update_email_preference', {
+        userId: user.id,
+        value: body.data.emailNotifyOnMessage
       })
 
       if (!body.data.emailNotifyOnMessage) {

@@ -30,14 +30,17 @@ export function LoginPage() {
     setError(null)
     try {
       await login(data.email, data.password)
-      navigate('/')
+      const { user } = useAuthStore.getState()
+      if (user?.status === 'APPROVED') {
+        navigate(user.role === 'USER' ? '/home' : '/admin/home')
+      } else {
+        navigate('/status')
+      }
     } catch (err) {
-      // HIGH FIX: Use generic error messages to prevent user enumeration attacks
       if (err instanceof ApiError) {
         if (err.status === 429) {
           setError('Too many attempts. Please try again later.')
         } else {
-          // Generic message for 401, 403, and other errors
           setError('Invalid credentials or account unavailable.')
         }
       } else {
@@ -68,6 +71,7 @@ export function LoginPage() {
             type="email"
             placeholder="you@company.com"
             autoComplete="email"
+            autoFocus
             aria-invalid={errors.email ? 'true' : 'false'}
             aria-describedby={errors.email ? 'email-error' : undefined}
             className="h-11 rounded-xl bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-2"

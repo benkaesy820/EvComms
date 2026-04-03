@@ -17,6 +17,42 @@ let rawClient: Client | null = null
 let wrappedClient: Client | null = null
 let db: LibSQLDatabase<typeof schema> | null = null
 
+/**
+ * Detect libsql hrana stream expiry or transient transport errors.
+ * libsql streams expire after ~15s of inactivity (tursodatabase/libsql#985).
+ * 503 = Turso edge gateway transient, also retryable.
+ */
+function isStreamExpired(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message
+    return (
+      msg.includes('STREAM_EXPIRED') ||
+      msg.includes('stream has expired') ||
+      msg.includes('HRANA_WEBSOCKET_ERROR') ||
+      msg.includes('WebSocket was closed')
+    )
+  }
+  return false
+}
+
+function isTransientServerError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message
+    return msg.includes('SERVER_ERROR') || msg.includes('503')
+  }
+  return false
+}
+
+async function rebuildClient(): Promise<Client> {
+  rawClient = null
+  wrappedClient = null
+  db = null
+  logger.warn('Rebuilding libsql client after stream expiry')
+  await createDbClient()
+  db = drizzle(wrappedClient!, { schema, logger: env.isDev })
+  return rawClient!
+}
+
 function getTimeoutMs(): number {
   try {
     return getConfig().server?.requestTimeoutMs ?? DEFAULT_DB_TIMEOUT_MS
@@ -71,14 +107,34 @@ function wrapClientWithResilience(client: Client): Client {
       if (prop === 'execute') {
         return async (...args: unknown[]) => {
           const fn = Reflect.get(target, prop, receiver) as (...args: unknown[]) => Promise<unknown>
-          return withDbCircuitBreaker(() => withDbTimeout(fn.apply(target, args)))
+          try {
+            return withDbCircuitBreaker(() => withDbTimeout(fn.apply(target, args)))
+          } catch (error) {
+            if (isStreamExpired(error) || isTransientServerError(error)) {
+              await rebuildClient()
+              const newClient = getClient()
+              const newFn = Reflect.get(newClient, prop, receiver) as (...args: unknown[]) => Promise<unknown>
+              return withDbCircuitBreaker(() => withDbTimeout(newFn.apply(newClient, args)))
+            }
+            throw error
+          }
         }
       }
 
       if (prop === 'batch') {
         return async (...args: unknown[]) => {
           const fn = Reflect.get(target, prop, receiver) as (...args: unknown[]) => Promise<unknown>
-          return withDbCircuitBreaker(() => withDbTimeout(fn.apply(target, args)))
+          try {
+            return withDbCircuitBreaker(() => withDbTimeout(fn.apply(target, args)))
+          } catch (error) {
+            if (isStreamExpired(error) || isTransientServerError(error)) {
+              await rebuildClient()
+              const newClient = getClient()
+              const newFn = Reflect.get(newClient, prop, receiver) as (...args: unknown[]) => Promise<unknown>
+              return withDbCircuitBreaker(() => withDbTimeout(newFn.apply(newClient, args)))
+            }
+            throw error
+          }
         }
       }
 
@@ -88,7 +144,17 @@ function wrapClientWithResilience(client: Client): Client {
       if (prop === 'transaction') {
         return async (...args: unknown[]) => {
           const fn = Reflect.get(target, prop, receiver) as (...args: unknown[]) => Promise<unknown>
-          return withDbCircuitBreaker(() => withDbTimeout(fn.apply(target, args), getTimeoutMs() * 2))
+          try {
+            return withDbCircuitBreaker(() => withDbTimeout(fn.apply(target, args), getTimeoutMs() * 2))
+          } catch (error) {
+            if (isStreamExpired(error) || isTransientServerError(error)) {
+              await rebuildClient()
+              const newClient = getClient()
+              const newFn = Reflect.get(newClient, prop, receiver) as (...args: unknown[]) => Promise<unknown>
+              return withDbCircuitBreaker(() => withDbTimeout(newFn.apply(newClient, args), getTimeoutMs() * 2))
+            }
+            throw error
+          }
         }
       }
 
@@ -212,8 +278,9 @@ export async function checkDbHealth(): Promise<{
   }
 }
 
-export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
+export async function cleanupExpiredSessions(): Promise<{ cleaned: number; expiredByUser: Map<string, string[]> }> {
   const nowSec = Math.floor(Date.now() / 1000)
+  const expiredByUser = new Map<string, string[]>()
 
   try {
     let totalCleaned = 0
@@ -223,16 +290,23 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
     while (true) {
       const expiredResult = await withDbTimeout(
         client.execute(
-          'SELECT id FROM sessions WHERE revoked_at IS NULL AND expires_at < ? LIMIT ?',
+          'SELECT id, user_id FROM sessions WHERE revoked_at IS NULL AND expires_at < ? LIMIT ?',
           [nowSec, batchSize]
         ),
         10000
       )
       
-      const expiredSessions = expiredResult.rows as unknown as { id: string }[]
+      const expiredSessions = expiredResult.rows as unknown as { id: string; user_id: string }[]
       if (expiredSessions.length === 0) break
 
       const sessionIds = expiredSessions.map(s => s.id)
+
+      // Group by user for socket notifications
+      for (const s of expiredSessions) {
+        const existing = expiredByUser.get(s.user_id) ?? []
+        existing.push(s.id)
+        expiredByUser.set(s.user_id, existing)
+      }
 
       try {
         await withDbTimeout(
@@ -279,13 +353,13 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number }> {
     )
 
     if (totalCleaned > 0) {
-      logger.info({ cleaned: totalCleaned }, 'Expired sessions cleaned')
+      logger.info({ cleaned: totalCleaned, usersAffected: expiredByUser.size }, 'Expired sessions cleaned')
     }
 
-    return { cleaned: totalCleaned }
+    return { cleaned: totalCleaned, expiredByUser }
   } catch (error) {
     logger.error({ error }, 'Session cleanup failed')
-    return { cleaned: 0 }
+    return { cleaned: 0, expiredByUser }
   }
 }
 

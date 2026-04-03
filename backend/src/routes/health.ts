@@ -9,9 +9,22 @@ import { getCacheConfig } from '../lib/config.js'
 
 let cachedHealthResult: unknown = null
 let cachedHealthAt = 0
+let isReady = false
+
+export function markReady() { isReady = true }
 
 export async function healthRoutes(fastify: FastifyInstance) {
   const rateLimiters = createRateLimiters()
+
+  // Readiness probe — returns 200 once the server has finished initialization,
+  // regardless of current DB health. PaaS platforms use this to decide whether
+  // to route traffic to this instance.
+  fastify.get('/ready', async (request, reply) => {
+    if (!isReady) {
+      return reply.code(503).send({ status: 'starting', timestamp: new Date().toISOString() })
+    }
+    return reply.code(200).send({ status: 'ready', timestamp: new Date().toISOString() })
+  })
 
   fastify.get('/health', { preHandler: rateLimiters.api }, async (request, reply) => {
     const now = Date.now()

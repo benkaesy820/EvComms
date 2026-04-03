@@ -42,9 +42,9 @@ export function AuthLayout({
         {/* Left — Brand Panel (desktop only) */}
         <div className="relative hidden w-[42%] lg:flex flex-col justify-between bg-primary p-10 text-primary-foreground shrink-0 self-start sticky top-16 h-[calc(100vh-4rem)] overflow-hidden">
           <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--primary))_0%,hsl(var(--primary)/0.85)_50%,hsl(var(--primary)/0.7)_100%)]" />
-          <div className="absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-white/5" />
-          <div className="absolute -top-16 -left-16 h-60 w-60 rounded-full bg-white/5" />
-          <div className="absolute top-1/2 right-12 h-40 w-40 rounded-full bg-white/5" />
+          <div className="absolute -bottom-24 -right-24 h-80 w-80 rounded-full bg-white/5 animate-pulse [animation-duration:4s]" />
+          <div className="absolute -top-16 -left-16 h-60 w-60 rounded-full bg-white/5 animate-pulse [animation-duration:6s]" />
+          <div className="absolute top-1/2 right-12 h-40 w-40 rounded-full bg-white/5 animate-pulse [animation-duration:5s]" />
 
           <div className="relative z-10 flex items-center gap-3">
             <Link to="/" className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/10 shadow-sm hover:scale-105 transition-transform">
@@ -66,7 +66,7 @@ export function AuthLayout({
             <div className="space-y-4">
               {[
                 { icon: Zap, text: 'Real-time messaging with read receipts' },
-                { icon: Lock, text: 'End-to-end secure conversations' },
+                { icon: Lock, text: 'Secure conversations with CSRF protection' },
                 { icon: Headphones, text: 'Dedicated admin support team' },
               ].map(({ icon: Icon, text }) => (
                 <div key={text} className="flex items-center gap-3">
@@ -85,7 +85,7 @@ export function AuthLayout({
         </div>
 
         {/* Right — Form panel (scrollable) */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative bg-gradient-to-b from-muted/10 to-background min-h-[calc(100vh-4rem)]">
           <div className="px-4 py-6 sm:px-8 sm:py-10">
             <div className="w-full max-w-[420px] mx-auto space-y-6 sm:space-y-7 py-2 sm:py-4">
               {(title || subtitle) && (

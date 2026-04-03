@@ -130,13 +130,6 @@ interface UploadAuthParams {
   provider: 'R2' | 'IMAGEKIT'
 }
 
-// Interface for ImageKit file objects
-interface ImageKitFile {
-  fileId?: string
-  name?: string
-}
-
-// Interface for ImageKit file objects
 interface ImageKitFile {
   fileId?: string
   name?: string

@@ -426,12 +426,19 @@ export async function mediaRoutes(fastify: FastifyInstance) {
     }
 
     // Verify signature
+    if (!env.imagekitPrivateKey) {
+      logger.warn({}, 'ImageKit webhook rejected — IMAGEKIT_PRIVATE_KEY not configured')
+      return sendError(reply, 401, 'UNAUTHORIZED', 'Webhook signing not configured')
+    }
+
     const expectedSignature = crypto
-      .createHmac('sha1', env.imagekitPrivateKey || '')
+      .createHmac('sha1', env.imagekitPrivateKey)
       .update(`${timestamp}.${JSON.stringify(request.body)}`)
       .digest('hex')
 
-    if (signature !== expectedSignature) {
+    const sigBuffer = Buffer.from(signature, 'utf8')
+    const expBuffer = Buffer.from(expectedSignature, 'utf8')
+    if (sigBuffer.length !== expBuffer.length || !crypto.timingSafeEqual(sigBuffer, expBuffer)) {
       logger.warn({ 
         received: signature, 
         expected: expectedSignature 

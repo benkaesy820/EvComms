@@ -219,8 +219,8 @@ export function AuditPage() {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-          <div className="relative flex-1 min-w-0 sm:max-w-xs">
+        <div className="grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
+          <div className="relative min-w-0">
             <User className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
               placeholder="Search by user name or email..."
@@ -229,25 +229,24 @@ export function AuditPage() {
               className="pl-9 h-9 rounded-xl w-full"
             />
           </div>
-          {/* FIX #22: Date range filter */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5">
             <Input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="h-9 rounded-xl w-full sm:w-[140px] text-xs"
+              className="h-9 rounded-xl flex-1 sm:w-[140px] text-xs"
               title="From date"
             />
-            <span className="text-xs text-muted-foreground">–</span>
+            <span className="text-xs text-muted-foreground shrink-0">–</span>
             <Input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="h-9 rounded-xl w-full sm:w-[140px] text-xs"
+              className="h-9 rounded-xl flex-1 sm:w-[140px] text-xs"
               title="To date"
             />
             {(dateFrom || dateTo) && (
-              <Button variant="ghost" size="sm" className="h-9 px-2 rounded-xl text-xs text-muted-foreground" onClick={() => { setDateFrom(''); setDateTo('') }}>
+              <Button variant="ghost" size="sm" className="h-9 px-2 rounded-xl text-xs text-muted-foreground shrink-0" onClick={() => { setDateFrom(''); setDateTo('') }}>
                 Reset
               </Button>
             )}

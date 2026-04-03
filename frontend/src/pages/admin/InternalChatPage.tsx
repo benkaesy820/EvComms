@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { cn, getInitials } from '@/lib/utils'
+import type { InternalMessage } from '@/lib/schemas'
 import { useInternalMessages, useSendInternalMessage, useDeleteInternalMessage, useClearInternalChat, useInternalReaction, useEmitInternalRead } from '@/hooks/useInternalChat'
 import { useAdminList } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
@@ -177,16 +178,9 @@ export function InternalChatPage() {
       }
     }
 
-    const onNewMsg = () => {
-      // Whenever a team message drops in while page is mounted, tell server we read it immediately
-      socket.emit('internal:mark_read')
-    }
-
     socket.on('internal:typing', onTyping)
-    socket.on('internal:message', onNewMsg)
     return () => {
       socket.off('internal:typing', onTyping)
-      socket.off('internal:message', onNewMsg)
       // Clear all pending timers on unmount
       typingTimersRef.current.forEach(t => clearTimeout(t))
       typingTimersRef.current.clear()
@@ -207,9 +201,9 @@ export function InternalChatPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-accent/20 dark:bg-background overflow-hidden relative">
+    <div className="chat-viewport-height flex-1 flex flex-col bg-accent/20 dark:bg-background overflow-hidden relative">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b px-4 py-2.5 bg-sidebar shrink-0 z-10 shadow-sm">
+      <div className="flex items-center gap-3 border-b px-4 py-2.5 bg-sidebar shrink-0 z-10 shadow-sm pt-[max(0.625rem,env(safe-area-inset-top))]">
         <div className={cn(
           'flex h-9 w-9 items-center justify-center rounded-xl',
           isSuperAdmin ? 'bg-primary/10' : 'bg-amber-100 dark:bg-amber-900/20'
@@ -363,7 +357,7 @@ export function InternalChatPage() {
             const showAvatar = !isOwn && (!prev || prev.senderId !== msg.senderId)
             // Group tick: others = total admins minus self
             const groupSize = Math.max(0, allAdmins.length) // allAdmins already excludes self
-            const readCount = (msg as any).readBy?.length ?? 0
+            const readCount = msg.readBy?.length ?? 0
 
             return (
               <div key={msg.id} className="relative">
@@ -389,12 +383,12 @@ export function InternalChatPage() {
                       action: hasReacted ? 'remove' : 'add'
                     })
                   }}
-                  onReply={selectMode ? undefined : (m) => setReplyTo(m as any)}
+                  onReply={selectMode ? undefined : (m) => setReplyTo({ id: m.id, content: m.content, type: m.type, sender: { name: m.sender?.name ?? '' } })}
                   onDelete={selectMode ? undefined : () => deleteMessage.mutate({ id: msg.id, scope: 'me' })}
-                  onRetry={(msg as any).status === 'FAILED' ? () => {
-                    queryClient.setQueryData<{ pages: Array<{ messages: any[]; hasMore: boolean; success: boolean }> }>(
+                  onRetry={msg.status === 'FAILED' ? () => {
+                    queryClient.setQueryData<{ pages: Array<{ messages: InternalMessage[]; hasMore: boolean; success: boolean }> }>(
                       ['internal-messages'],
-                      (old) => old ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.filter((m: any) => m.id !== msg.id) })) } : old
+                      (old) => old ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.filter(m => m.id !== msg.id) })) } : old
                     )
                     sendMessage.mutate({ type: msg.type, content: msg.content ?? undefined, tempId: `retry-${msg.id}` })
                   } : undefined}

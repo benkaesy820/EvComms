@@ -186,8 +186,8 @@ export function extractDeviceInfo(request: { headers: Record<string, string | st
 // SECURITY FIX: Use HMAC with secret key instead of plain SHA-256
 // This prevents rainbow table attacks even if the hash is leaked
 function getHmacKey(): string {
-  // Use JWT secret as HMAC key, with a prefix to distinguish usage
-  return env.jwtSecret || 'fallback-key-change-in-production'
+  if (!env.jwtSecret) throw new Error('JWT_SECRET environment variable is required — HMAC operations cannot use a hardcoded fallback')
+  return env.jwtSecret
 }
 
 export function hashEmail(email: string): string {

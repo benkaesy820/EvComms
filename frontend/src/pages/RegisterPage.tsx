@@ -27,24 +27,19 @@ function PasswordStrength({ value }: { value: string }) {
   if (!value) return null
   const passed = PWD_CRITERIA.filter(c => c.test(value)).length
   const colors = ['bg-destructive', 'bg-destructive', 'bg-amber-500', 'bg-amber-400', 'bg-green-500']
+  const labels = ['Weak', 'Weak', 'Fair', 'Good', 'Strong']
   return (
-    <div className="mt-2 space-y-2">
-      <div className="flex gap-1">
-        {PWD_CRITERIA.map((_, i) => (
-          <div key={i} className={cn('h-1 flex-1 rounded-full transition-colors duration-300', i < passed ? colors[passed] : 'bg-muted')} />
-        ))}
+    <div className="mt-2 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 flex-1">
+          {PWD_CRITERIA.map((_, i) => (
+            <div key={i} className={cn('h-1.5 flex-1 rounded-full transition-colors duration-300', i < passed ? colors[passed] : 'bg-muted')} />
+          ))}
+        </div>
+        <span className={cn('text-[10px] font-semibold tabular-nums shrink-0', passed <= 1 ? 'text-destructive' : passed <= 3 ? 'text-amber-500' : 'text-green-500')}>
+          {labels[passed]}
+        </span>
       </div>
-      <ul className="space-y-0.5">
-        {PWD_CRITERIA.map(c => {
-          const ok = c.test(value)
-          return (
-            <li key={c.label} className={cn('flex items-center gap-1.5 text-[11px] transition-colors', ok ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground')}>
-              <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', ok ? 'bg-green-500' : 'bg-muted-foreground/40')} />
-              {c.label}
-            </li>
-          )
-        })}
-      </ul>
     </div>
   )
 }
@@ -255,6 +250,7 @@ export function RegisterPage() {
               id="name"
               placeholder="John Doe"
               autoComplete="name"
+              autoFocus
               className="h-11 rounded-xl bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-2"
               {...register('name')}
             />
@@ -346,6 +342,7 @@ export function RegisterPage() {
                 <Textarea
                   placeholder="Please describe the issue in detail…"
                   rows={4}
+                  maxLength={2000}
                   className="rounded-lg bg-background text-sm resize-none"
                   {...register('reportDescription')}
                 />

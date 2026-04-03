@@ -7,7 +7,7 @@ import { conversations, messages, media, auditLogs, messageReactions, users, reg
 import { requireApprovedUser, requireUser, sendError, sendOk } from '../middleware/auth.js'
 import { canAccessConversation, canDeleteMessage, canUploadMedia, isAdmin } from '../lib/permissions.js'
 import { getConfig } from '../lib/config.js'
-import { emitToUser, emitToAdmins, emitToSuperAdmins } from '../socket/index.js'
+import { emitToUser, emitToAdmins, emitToSuperAdmins, isUserOnlineGlobally } from '../socket/index.js'
 import { cancelEmailNotification, queueEmailNotification } from '../services/emailQueue.js'
 import { sendEmail } from '../services/email.js'
 import { createRateLimiters } from '../middleware/rateLimit.js'
@@ -54,7 +54,7 @@ function isDbConstraintError(error: unknown): boolean {
 }
 
 export async function conversationRoutes(fastify: FastifyInstance) {
-  logger.info('>>> CONVERSATION ROUTES REGISTERED <<<')
+  logger.debug('Conversation routes registered')
   const rateLimiters = createRateLimiters()
 
   fastify.get('/', { preHandler: requireApprovedUser }, async (request, reply) => {
@@ -509,6 +509,32 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
     logger.warn({ emitErr }, 'Failed to emit conversation:new — non-fatal')
   }
 
+  // Push notification for offline admins — new conversation needs attention
+  try {
+    const allAdmins = await db.query.users.findMany({
+      where: and(
+        sql`(role = 'ADMIN' OR role = 'SUPER_ADMIN')`,
+        eq(users.status, 'APPROVED'),
+        ne(users.id, user.id)
+      ),
+      columns: { id: true }
+    })
+    const userName = targetUserInfo.name || 'A user'
+    for (const admin of allAdmins) {
+      const adminOnline = await isUserOnlineGlobally(admin.id)
+      if (!adminOnline) {
+        sendPushToUser(admin.id, {
+          title: 'New Conversation',
+          body: `${userName} started a conversation`,
+          tag: `conv-new:${id}`,
+          data: { url: '/admin', conversationId: id, type: 'chat' }
+        }).catch(() => {})
+      }
+    }
+  } catch (pushErr) {
+    logger.warn({ push_err: pushErr }, 'New conversation push to admins failed — non-fatal')
+  }
+
   reply.code(201)
   return sendOk(reply, { conversation: fullConv })
 })
@@ -935,21 +961,30 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
     if (isAdminSending) {
       // Serverless execution: Complete the atomic send block natively
       await queueEmailNotification(conversation.userId).catch(e => logger.error({ e }, 'HTTP Email enqueue failed'))
-      // Web Push for User
-      sendPushToUser(conversation.userId, {
-        title: `Reply from ${senderShape.name}`,
-        body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
-        data: { url: `/home/chat`, conversationId, type: 'chat' }
-      }).catch(err => logger.error({ err }, 'Push send failed'))
+      // Web Push for User — cross-instance check so we don't push to someone
+      // who is connected on another pod.
+      const userOnline = await isUserOnlineGlobally(conversation.userId)
+      if (!userOnline) {
+        sendPushToUser(conversation.userId, {
+          title: `Reply from ${senderShape.name}`,
+          body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
+          data: { url: `/home/chat`, conversationId, type: 'chat' }
+        }).catch(err => logger.error({ err }, 'Push send failed'))
+      }
     } else {
-      // User sending to Admin
+      // User sending to Admin — cross-instance online check
       const assignedAdminId = updatedConversation?.assignedAdminId ?? conversation.assignedAdminId
       if (assignedAdminId) {
-        sendPushToUser(assignedAdminId, {
-          title: `New Message from ${senderShape.name}`,
-          body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
-          data: { url: `/admin`, conversationId, type: 'chat' }
-        }).catch(err => logger.error({ err }, 'Push send failed'))
+        const adminOnline = await isUserOnlineGlobally(assignedAdminId)
+        if (!adminOnline) {
+          sendPushToUser(assignedAdminId, {
+            title: `New Message from ${senderShape.name}`,
+            body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
+            data: { url: `/admin`, conversationId, type: 'chat' }
+          }).catch(err => logger.error({ err }, 'Push send failed'))
+          // Email fallback for offline admins
+          import('../services/emailQueue.js').then(m => m.queueAdminEmailNotification(assignedAdminId)).catch(() => {})
+        }
       }
     }
 
@@ -1033,6 +1068,16 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
         conversationId,
         userName: chatUserName,
       })
+      // Push for offline admin — they need to know about the assignment
+      const newAdminOnline = await isUserOnlineGlobally(newAdminId)
+      if (!newAdminOnline) {
+        sendPushToUser(newAdminId, {
+          title: 'Conversation Assigned',
+          body: `You've been assigned to ${chatUserName}'s conversation`,
+          tag: `conv-assign:${conversationId}`,
+          data: { url: '/admin', conversationId, type: 'chat' }
+        }).catch(() => {})
+      }
     }
 
     // Broadcast assignment update to all admins (for super admin overview)

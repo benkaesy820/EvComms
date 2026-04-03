@@ -71,7 +71,7 @@ export function LandingPage() {
   const stats = [
     { value: brand?.statResponseTime ?? 'Fast', label: 'Avg. first response' },
     { value: brand?.statUptime ?? '99.9%', label: 'Platform uptime' },
-    { value: '100%', label: 'Messages encrypted' },
+    { value: '100%', label: 'HTTPS secured' },
     { value: brand?.statAvailability ?? '24/7', label: 'Team availability' },
   ]
 
@@ -123,10 +123,10 @@ export function LandingPage() {
                   Signed in as <span className="font-semibold text-foreground">{user?.name}</span>
                   {' · '}
                   <button
-                    onClick={() => navigate(user?.role === 'USER' ? '/home/settings' : '/admin/settings')}
+                    onClick={() => navigate(user?.status === 'APPROVED' ? (user?.role === 'USER' ? '/home/settings' : '/admin/settings') : dashboardPath)}
                     className="hover:text-foreground hover:underline underline-offset-2 transition-colors"
                   >
-                    Settings
+                    {user?.status === 'APPROVED' ? 'Settings' : 'Dashboard'}
                   </button>
                 </p>
               </div>
@@ -154,7 +154,7 @@ export function LandingPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-xs font-medium text-muted-foreground animate-in fade-in duration-700 [animation-delay:500ms]">
-            <span className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 text-primary" />End-to-end encrypted</span>
+            <span className="flex items-center gap-1.5"><Lock className="h-3.5 w-3.5 text-primary" />Secure & private</span>
             <span className="hidden sm:block h-3 w-px bg-border" />
             <span className="flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-primary" />Real-time messaging</span>
             <span className="hidden sm:block h-3 w-px bg-border" />
@@ -225,7 +225,7 @@ export function LandingPage() {
                   </div>
                   <div className="flex justify-end">
                     <div className="max-w-[78%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-xs text-primary-foreground shadow-sm shadow-primary/20">
-                      Go to Settings → Preferences. Toggle email notifications there. Anything else I can help with? 👍
+                      Go to Settings → Preferences. Toggle email notifications there. Anything else I can help with?
                     </div>
                   </div>
                   <div className="flex justify-start">

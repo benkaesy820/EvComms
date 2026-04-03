@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { and, desc, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { ulid, decodeTime } from 'ulid'
 import { hash } from '@node-rs/argon2'
 import { db } from '../db/index.js'
@@ -223,38 +223,51 @@ export async function adminAdminRoutes(fastify: FastifyInstance) {
     updateUserCache(userId, { status: 'SUSPENDED' })
     forceLogout(userId, 'Account suspended')
 
-    // Reassign orphaned conversations sequentially after the main transaction commits.
-    // Severless FIX: Ensure this remains awaited so PaaS containers don't freeze mid-execution.
+    // Reassign orphaned conversations after the main transaction commits.
     if (orphanedConvs.length > 0) {
       logger.info({ suspendedAdmin: userId, orphanCount: orphanedConvs.length }, 'Reassigning orphaned conversations after admin suspend')
-      // HIGH FIX: Track failures and notify super admins so no conversation is silently lost.
       const failedConvIds: string[] = []
+      const now = new Date()
+
+      // Batch: group by subsidiaryId to minimise pickBestAdmin calls, then bulk-update each group
+      const bySub = new Map<string | null, string[]>()
       for (const conv of orphanedConvs) {
+        const key = conv.subsidiaryId
+        const group = bySub.get(key) ?? []
+        group.push(conv.id)
+        bySub.set(key, group)
+      }
+
+      for (const [subId, convIds] of bySub) {
         try {
-          const newAdminId = await pickBestAdmin(conv.subsidiaryId)
+          const newAdminId = await pickBestAdmin(subId)
           if (newAdminId) {
             await db.update(conversations)
-              .set({ assignedAdminId: newAdminId, updatedAt: new Date() })
-              .where(eq(conversations.id, conv.id))
-            emitToAdmins('conversation:assigned', {
-              conversationId: conv.id,
-              assignedAdminId: newAdminId,
-              oldAdminId: userId,
-              reason: 'admin_suspended'
-            })
+              .set({ assignedAdminId: newAdminId, updatedAt: now })
+              .where(inArray(conversations.id, convIds))
+            // Emit one event per conversation for socket consistency
+            for (const convId of convIds) {
+              emitToAdmins('conversation:assigned', {
+                conversationId: convId,
+                assignedAdminId: newAdminId,
+                oldAdminId: userId,
+                reason: 'admin_suspended'
+              })
+            }
           } else {
-            emitToAdmins('conversation:unassigned', {
-              conversationId: conv.id,
-              oldAdminId: userId,
-              reason: 'admin_suspended'
-            })
+            for (const convId of convIds) {
+              emitToAdmins('conversation:unassigned', {
+                conversationId: convId,
+                oldAdminId: userId,
+                reason: 'admin_suspended'
+              })
+            }
           }
         } catch (err) {
-          logger.warn({ convId: conv.id, err }, 'Failed to reassign conversation after admin suspend')
-          failedConvIds.push(conv.id)
+          logger.warn({ convIds, err }, 'Failed to reassign conversation batch after admin suspend')
+          failedConvIds.push(...convIds)
         }
       }
-      // Notify super admins of any reassignment failures so they can manually review
       if (failedConvIds.length > 0) {
         logger.error({ suspendedAdmin: userId, failedConvIds }, 'Some conversations could not be reassigned after admin suspend — manual review required')
         emitToAdmins('admin:reassignment_failures', {
@@ -380,31 +393,45 @@ export async function adminAdminRoutes(fastify: FastifyInstance) {
 
       if (orphanedConvs.length > 0) {
         logger.info({ demotedAdmin: userId, orphanCount: orphanedConvs.length }, 'Reassigning orphaned conversations after role demotion')
-        // HIGH FIX: Track failures and notify super admins
         const demotionFailedIds: string[] = []
+        const now = new Date()
+
+        // Batch: group by subsidiaryId to minimise pickBestAdmin calls
+        const bySub = new Map<string | null, string[]>()
         for (const conv of orphanedConvs) {
+          const key = conv.subsidiaryId
+          const group = bySub.get(key) ?? []
+          group.push(conv.id)
+          bySub.set(key, group)
+        }
+
+        for (const [subId, convIds] of bySub) {
           try {
-            const newAdminId = await pickBestAdmin(conv.subsidiaryId)
+            const newAdminId = await pickBestAdmin(subId)
             if (newAdminId) {
               await db.update(conversations)
-                .set({ assignedAdminId: newAdminId, updatedAt: new Date() })
-                .where(eq(conversations.id, conv.id))
-              emitToAdmins('conversation:assigned', {
-                conversationId: conv.id,
-                assignedAdminId: newAdminId,
-                oldAdminId: userId,
-                reason: 'admin_demoted'
-              })
+                .set({ assignedAdminId: newAdminId, updatedAt: now })
+                .where(inArray(conversations.id, convIds))
+              for (const convId of convIds) {
+                emitToAdmins('conversation:assigned', {
+                  conversationId: convId,
+                  assignedAdminId: newAdminId,
+                  oldAdminId: userId,
+                  reason: 'admin_demoted'
+                })
+              }
             } else {
-              emitToAdmins('conversation:unassigned', {
-                conversationId: conv.id,
-                oldAdminId: userId,
-                reason: 'admin_demoted'
-              })
+              for (const convId of convIds) {
+                emitToAdmins('conversation:unassigned', {
+                  conversationId: convId,
+                  oldAdminId: userId,
+                  reason: 'admin_demoted'
+                })
+              }
             }
           } catch (err) {
-            logger.warn({ convId: conv.id, err }, 'Failed to reassign conversation after role demotion')
-            demotionFailedIds.push(conv.id)
+            logger.warn({ convIds, err }, 'Failed to reassign conversation batch after role demotion')
+            demotionFailedIds.push(...convIds)
           }
         }
         if (demotionFailedIds.length > 0) {
@@ -446,7 +473,7 @@ export async function adminAdminRoutes(fastify: FastifyInstance) {
     // FIX #20: Capture previous subsidiaryIds for full audit trail
     let previousSubsidiaryIds: string[] = []
     if (target.subsidiaryIds) {
-      try { previousSubsidiaryIds = JSON.parse(target.subsidiaryIds) } catch { /* ignore */ }
+      try { previousSubsidiaryIds = JSON.parse(target.subsidiaryIds) } catch (e) { logger.warn({ e, targetId: userId }, 'Failed to parse previous subsidiaryIds for audit trail') }
     }
 
     const raw = body.data.subsidiaryIds.length > 0 ? JSON.stringify(body.data.subsidiaryIds) : null

@@ -29,10 +29,24 @@ const commonPasswordsRegex = new RegExp(
 )
 
 const COMMON_PATTERNS = [
-  /(.+)\1{2,}/, // Repeated characters (3+ times)
-  /^(.)\1+$/, // All same character
+  /(.+)\1{2,}/,
+  /^(.)\1+$/,
   commonPasswordsRegex,
 ]
+
+const SEQUENTIAL_CHARS = '01234567890abcdefghijklmnopqrstuvwxyz0'
+
+function hasSequentialChars(v: string, len = 3): boolean {
+  const lower = v.toLowerCase()
+  for (let i = 0; i <= lower.length - len; i++) {
+    const slice = lower.slice(i, i + len)
+    const fwdIdx = SEQUENTIAL_CHARS.indexOf(slice)
+    if (fwdIdx !== -1) return true
+    const revSlice = slice.split('').reverse().join('')
+    if (SEQUENTIAL_CHARS.indexOf(revSlice) !== -1) return true
+  }
+  return false
+}
 
 const passwordSchema = z.string()
   .min(12, 'At least 12 characters')
@@ -43,7 +57,7 @@ const passwordSchema = z.string()
   .regex(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/, 'Must include special character')
   .refine((v) => !/\s/.test(v), 'Cannot contain spaces')
   .refine(v => !COMMON_PATTERNS.some(p => p.test(v)), 'Password contains common patterns or repeated characters (e.g. 111, aaa)')
-  .refine(v => !/012|123|234|345|456|567|678|789|890|abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|qwe|wer|ert|rty|tyu|yui|uio|iop|asd|sdf|dfg|fgh|ghj|hjk|jkl|zxc|xcv|cvb|vbn|bnm/i.test(v), 'Cannot contain sequential characters (e.g. 123, abc)')
+  .refine(v => !hasSequentialChars(v), 'Cannot contain sequential characters (e.g. 123, abc)')
 
 export const registerSchema = z.object({
   email: z.string().email('Invalid email address').max(255),
@@ -294,6 +308,7 @@ export interface Announcement {
   downvoteCount: number
   userVote: 'UP' | 'DOWN' | null
   isActive: boolean
+  isPublic?: boolean
   createdBy: string
   createdAt: number | string
   expiresAt: number | string | null

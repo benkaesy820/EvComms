@@ -3,9 +3,18 @@ import { useEffect } from 'react'
 import { adminInternal } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import type { InternalMessage } from '@/lib/schemas'
+
+interface SocketSendPayload {
+  type: string
+  content?: string
+  mediaId?: string
+  replyToId?: string
+  tempId?: string
+}
 import { toast } from '@/components/ui/sonner'
 import { useAuthStore } from '@/stores/authStore'
 import { audio } from '@/lib/audio'
+import { showOsNotification } from '@/lib/notify'
 
 const KEY = ['internal-messages'] as const
 export const INTERNAL_UNREAD_KEY = ['internal', 'unread'] as const
@@ -20,31 +29,42 @@ export function useInternalMessages() {
     const onNew = (data: { message: InternalMessage }) => {
       const currentUserId = useAuthStore.getState().user?.id
 
-      // Sound logic: match main chat 3-state system
+      // Sound/OS notification for incoming team messages — in-page only.
+      // The "completely elsewhere" case (toast + ding) is handled by the
+      // global useSocket handler so we don't duplicate.
       if (data.message.senderId !== currentUserId) {
         const isOnTeamChat = window.location.pathname.includes('/admin/internal') ||
           window.location.pathname.includes('/team-chat')
-        const isFocused = document.hasFocus() && isOnTeamChat
 
-        if (isFocused) {
-          audio.playPop()
-        } else if (isOnTeamChat) {
-          // Unfocused but on the correct page -> ding, no toast
-          audio.playDing()
-        } else {
-          // Completely elsewhere -> ding + toast
-          audio.playDing()
-          const senderName = data.message.sender?.name ?? 'Team'
-          toast(senderName, {
-            description: data.message.content
-              ? (data.message.content.length > 60 ? data.message.content.slice(0, 60) + '\u2026' : data.message.content)
-              : '\ud83d\udcce Attachment',
-            action: {
-              label: 'View',
-              onClick: () => { window.location.href = '/admin/internal' }
-            }
-          })
+        if (isOnTeamChat) {
+          if (document.hasFocus()) {
+            audio.playPop()
+          } else {
+            // Unfocused but on the correct page -> ding + OS banner, no toast
+            audio.playDing()
+            showOsNotification(
+              data.message.sender?.name ?? 'Team',
+              data.message.content
+                ? (data.message.content.length > 60 ? data.message.content.slice(0, 60) + '\u2026' : data.message.content)
+                : '\ud83d\udcce Attachment',
+              'internal-chat',
+              '/admin/internal'
+            )
+          }
         }
+        // Not on team-chat page → global useSocket handler covers toast + ding
+      }
+
+      // Auto-mark-read: if the user is actively viewing the InternalChatPage,
+      // emit internal:mark_read immediately so blue-tick receipts stay accurate.
+      // This eliminates the need for InternalChatPage to register its own
+      // internal:message listener just for this side effect.
+      const isActivelyViewing = document.hasFocus() && (
+        window.location.pathname.includes('/admin/internal') ||
+        window.location.pathname.includes('/team-chat')
+      )
+      if (isActivelyViewing) {
+        socket?.emit('internal:mark_read')
       }
 
       queryClient.setQueryData<{
@@ -75,6 +95,24 @@ export function useInternalMessages() {
           pages: old.pages.map((page) => ({
             ...page,
             messages: page.messages.filter((m) => m.id !== data.id),
+          })),
+        }
+      })
+    }
+
+    const onBulkDeleted = (data: { ids: string[] }) => {
+      if (!Array.isArray(data.ids) || data.ids.length === 0) return
+      const idSet = new Set(data.ids)
+      queryClient.setQueryData<{
+        pages: Array<{ success: boolean; messages: InternalMessage[]; hasMore: boolean }>
+        pageParams: unknown[]
+      }>(KEY, (old) => {
+        if (!old) return old
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            messages: page.messages.filter((m) => !idSet.has(m.id)),
           })),
         }
       })
@@ -118,6 +156,15 @@ export function useInternalMessages() {
     // but `internal:message:sent` is targeted only at the emitting socket — use it to instantly
     // commit the real message on the sender's current tab without waiting for the broadcast echo.
     const onSent = (data: { tempId?: string; message: InternalMessage }) => {
+      const currentUserId = useAuthStore.getState().user?.id
+      if (data.message.senderId === currentUserId) {
+        if (document.hasFocus()) {
+          audio.playPop()
+        } else {
+          audio.playDing()
+        }
+      }
+
       queryClient.setQueryData<{
         pages: Array<{ success: boolean; messages: InternalMessage[]; hasMore: boolean }>
         pageParams: unknown[]
@@ -142,6 +189,7 @@ export function useInternalMessages() {
     socket.on('internal:message', onNew)
     socket.on('internal:message:sent', onSent)
     socket.on('internal:message:deleted', onDeleted)
+    socket.on('internal:messages:bulk_deleted', onBulkDeleted)
     socket.on('internal:chat:cleared', onCleared)
     socket.on('internal:message:reaction', onReaction)
 
@@ -158,7 +206,7 @@ export function useInternalMessages() {
           pages: old.pages.map((page) => ({
             ...page,
             messages: page.messages.map((m) => {
-              const existing: string[] = (m as any).readBy ?? []
+              const existing: string[] = m.readBy ?? []
               if (existing.includes(data.userId)) return m
               return { ...m, readBy: [...existing, data.userId] }
             }),
@@ -172,6 +220,7 @@ export function useInternalMessages() {
       socket.off('internal:message', onNew)
       socket.off('internal:message:sent', onSent)
       socket.off('internal:message:deleted', onDeleted)
+      socket.off('internal:messages:bulk_deleted', onBulkDeleted)
       socket.off('internal:chat:cleared', onCleared)
       socket.off('internal:message:reaction', onReaction)
       socket.off('internal:read_receipt', onReadReceipt)
@@ -192,8 +241,8 @@ export function useInternalMessages() {
       if (cache) {
         for (const page of cache.pages) {
           for (const m of page.messages) {
-            if (m.status || (m as any).readBy) {
-              metaMap.set(m.id, { status: m.status, readBy: (m as any).readBy })
+            if (m.status || m.readBy) {
+              metaMap.set(m.id, { status: m.status, readBy: m.readBy })
             }
           }
         }
@@ -245,7 +294,7 @@ export function useSendInternalMessage(currentUser: { id: string; name: string; 
           mediaId: vars.mediaId,
           replyToId: vars.replyToId,
           tempId: vars.tempId,
-        } as any)
+        } as SocketSendPayload)
         return Promise.resolve(null as null)
       }
       return adminInternal.send({ type: msgType, content: vars.content, mediaId: vars.mediaId, replyToId: vars.replyToId })

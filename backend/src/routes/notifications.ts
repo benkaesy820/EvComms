@@ -6,6 +6,7 @@ import { db } from '../db/index.js'
 import { pushSubscriptions } from '../db/schema.js'
 import { env } from '../lib/env.js'
 import { logger } from '../lib/logger.js'
+import { sendPushToUser } from '../lib/webPush.js'
 
 const subscribeSchema = z.object({
   endpoint: z.string().url(),
@@ -31,6 +32,7 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
 
   // POST /api/notifications/subscribe
   fastify.post('/subscribe', async (req: FastifyRequest, reply: FastifyReply) => {
+    logger.info({ userId: req?.user?.id }, 'Push subscribe request received')
     if (!req.user) return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } })
     if (!env.vapidPublicKey) {
       return reply.code(503).send({ success: false, error: { code: 'PUSH_NOT_CONFIGURED', message: 'Web push not configured' } })
@@ -91,5 +93,41 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     )
 
     return reply.send({ success: true })
+  })
+
+  // POST /api/notifications/test-push
+  // Dev/debug endpoint: sends a real push notification to the authenticated user.
+  // Bypasses the "user must be offline" socket guard so you can verify the full
+  // VAPID → push-service → service-worker → OS-banner pipeline from curl.
+  // Restricted to SUPER_ADMIN to prevent misuse.
+  fastify.post('/test-push', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.user) return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } })
+    if (req.user.role !== 'SUPER_ADMIN') return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Super admin only' } })
+
+    const subs = await db.query.pushSubscriptions.findMany({
+      where: eq(pushSubscriptions.userId, req.user.id),
+      columns: { id: true, endpoint: true },
+    })
+
+    if (subs.length === 0) {
+      return reply.code(404).send({
+        success: false,
+        error: { code: 'NO_SUBSCRIPTION', message: 'No push subscription found for your account. Enable notifications in Settings first.' },
+      })
+    }
+
+    try {
+      await sendPushToUser(req.user.id, {
+        title: '🔔 EvComms Test',
+        body: 'Push notifications are working correctly!',
+        tag: 'test-push',
+        data: { url: '/' },
+      })
+      logger.info({ userId: req.user.id, subscriptions: subs.length }, 'Test push sent')
+      return reply.send({ success: true, message: `Push sent to ${subs.length} device(s)` })
+    } catch (err) {
+      logger.error({ err, userId: req.user.id }, 'Test push failed')
+      return reply.code(500).send({ success: false, error: { code: 'PUSH_FAILED', message: 'Push delivery failed. Check server logs for details.' } })
+    }
   })
 }

@@ -64,7 +64,7 @@ export const MediaGrid = memo(function MediaGrid({ media, onMediaClick }: MediaG
   if (images.length === 0) return null
 
   return (
-    <div className={cn('grid gap-1.5 mb-2 max-w-sm',
+    <div className={cn('grid gap-1.5 mb-2 w-full',
       images.length === 1 ? 'grid-cols-1' :
       images.length === 2 ? 'grid-cols-2' :
       images.length === 3 ? 'grid-cols-2 grid-rows-2' : 'grid-cols-2')}>

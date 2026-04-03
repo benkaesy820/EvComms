@@ -14,21 +14,22 @@ import {
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useAdminConversations } from '@/hooks/useMessages'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { adminStats } from '@/lib/api'
 import type { Role } from '@/lib/schemas'
-import { useState, useEffect, useMemo } from 'react'
-import { getSocket } from '@/lib/socket'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppConfig } from '@/hooks/useConfig'
-import { useDMUnreadCount, CONVOS_KEY as DM_CONVOS_KEY } from '@/hooks/useDM'
-import { useInternalUnreadCount, INTERNAL_UNREAD_KEY, useMarkInternalRead } from '@/hooks/useInternalChat'
+import { useDMUnreadCount } from '@/hooks/useDM'
+import { useInternalUnreadCount, useMarkInternalRead } from '@/hooks/useInternalChat'
 import { useReportStatusListener, useReports } from '@/hooks/useReports'
 import { useAdminUserReports } from '@/hooks/useUserReports'
+
 
 interface NavItem {
   path: string
   icon: typeof MessageSquare
   label: string
+  shortLabel: string
   exact: boolean
   minRole?: Role
   showBadge?: 'users' | 'conversations' | 'team' | 'dm' | 'reports' | 'user-reports'
@@ -36,18 +37,18 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { path: '/admin/home', icon: Home, label: 'Dashboard', exact: true, group: 'main' },
-  { path: '/admin', icon: MessageSquare, label: 'Conversations', exact: true, showBadge: 'conversations', group: 'main' },
-  { path: '/admin/users', icon: Users, label: 'Users', exact: false, showBadge: 'users', group: 'main' },
-  { path: '/admin/internal', icon: MessageSquareLock, label: 'Team Chat', exact: false, showBadge: 'team', group: 'main' },
-  { path: '/admin/dm', icon: MessageCircle, label: 'Direct Messages', exact: false, showBadge: 'dm', group: 'manage' },
-  { path: '/admin/announcements', icon: Megaphone, label: 'Announcements', exact: false, group: 'manage' },
-  { path: '/admin/user-reports', icon: FileWarning, label: 'User Reports', exact: false, showBadge: 'user-reports', group: 'manage' },
-  { path: '/admin/reports', icon: ClipboardList, label: 'Registration Reports', exact: false, minRole: 'SUPER_ADMIN', showBadge: 'reports', group: 'manage' },
-  { path: '/admin/admins', icon: Shield, label: 'Admins', exact: false, minRole: 'SUPER_ADMIN', group: 'manage' },
-  { path: '/admin/audit', icon: ScrollText, label: 'Audit Logs', exact: false, minRole: 'SUPER_ADMIN', group: 'manage' },
-  { path: '/admin/settings', icon: Settings, label: 'Settings', exact: true, group: 'manage' },
-  { path: '/admin/brand', icon: Palette, label: 'Brand & Storefront', exact: false, minRole: 'SUPER_ADMIN', group: 'manage' },
+  { path: '/admin/home', icon: Home, label: 'Dashboard', shortLabel: 'Home', exact: true, group: 'main' },
+  { path: '/admin', icon: MessageSquare, label: 'Conversations', shortLabel: 'Chats', exact: true, showBadge: 'conversations', group: 'main' },
+  { path: '/admin/users', icon: Users, label: 'Users', shortLabel: 'Users', exact: false, showBadge: 'users', group: 'main' },
+  { path: '/admin/internal', icon: MessageSquareLock, label: 'Team Chat', shortLabel: 'Team', exact: false, showBadge: 'team', group: 'main' },
+  { path: '/admin/dm', icon: MessageCircle, label: 'Direct Messages', shortLabel: 'DM', exact: false, showBadge: 'dm', group: 'manage' },
+  { path: '/admin/announcements', icon: Megaphone, label: 'Announcements', shortLabel: 'News', exact: false, group: 'manage' },
+  { path: '/admin/user-reports', icon: FileWarning, label: 'User Reports', shortLabel: 'Reports', exact: false, showBadge: 'user-reports', group: 'manage' },
+  { path: '/admin/reports', icon: ClipboardList, label: 'Registration Reports', shortLabel: 'Signups', exact: false, minRole: 'SUPER_ADMIN', showBadge: 'reports', group: 'manage' },
+  { path: '/admin/admins', icon: Shield, label: 'Admins', shortLabel: 'Admins', exact: false, minRole: 'SUPER_ADMIN', group: 'manage' },
+  { path: '/admin/audit', icon: ScrollText, label: 'Audit Logs', shortLabel: 'Audit', exact: false, minRole: 'SUPER_ADMIN', group: 'manage' },
+  { path: '/admin/settings', icon: Settings, label: 'Settings', shortLabel: 'Settings', exact: true, group: 'manage' },
+  { path: '/admin/brand', icon: Palette, label: 'Brand & Storefront', shortLabel: 'Brand', exact: false, minRole: 'SUPER_ADMIN', group: 'manage' },
 ]
 
 function NavButton({
@@ -131,8 +132,6 @@ export function AdminLayout() {
   // Derive pending user-reports count from live query instead of local state.
   const { data: adminUserReportsData } = useAdminUserReports()
   const pendingUserReports = adminUserReportsData?.pendingCount ?? 0
-  const queryClient = useQueryClient()
-
   const { data: convData } = useAdminConversations()
   const { data: statsData } = useQuery({
     queryKey: ['admin', 'stats'],
@@ -148,78 +147,16 @@ export function AdminLayout() {
   useReportStatusListener() // Listen for real-time report updates
 
   // When landing on /admin/internal, mark internal messages read
+  const markInternalRef = useRef(markInternalRead)
+  markInternalRef.current = markInternalRead
   useEffect(() => {
     if (location.pathname.startsWith('/admin/internal')) {
-      markInternalRead.mutate()
+      markInternalRef.current.mutate()
     }
-  }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [location.pathname])
 
-  // Socket → invalidate server counts (no local state, avoids double-counting)
-  useEffect(() => {
-    const socket = getSocket()
-    if (!socket) return
-    const currentUserId = useAuthStore.getState().user?.id
 
-    const onInternal = (data: { message: { senderId: string } }) => {
-      if (data.message.senderId === currentUserId) return
-      if (!location.pathname.startsWith('/admin/internal')) {
-        queryClient.invalidateQueries({ queryKey: INTERNAL_UNREAD_KEY })
-      }
-    }
-    const onDM = (data: { message: { senderId: string } }) => {
-      if (data.message.senderId === currentUserId) return
-      if (!location.pathname.startsWith('/admin/dm')) {
-        queryClient.invalidateQueries({ queryKey: ['dm', 'unread'] })
-        queryClient.invalidateQueries({ queryKey: DM_CONVOS_KEY })
-      }
-    }
 
-    socket.on('internal:message', onInternal)
-    socket.on('dm:message', onDM)
-    return () => {
-      socket.off('internal:message', onInternal)
-      socket.off('dm:message', onDM)
-    }
-  }, [location.pathname, queryClient])
-
-  // Listen for new user registrations to update the reports & stats badge
-  useEffect(() => {
-    const socket = getSocket()
-    if (!socket) return
-    const onRegistered = () => {
-      queryClient.invalidateQueries({ queryKey: ['reports'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
-    }
-    socket.on('admin:user_registered', onRegistered)
-    return () => { socket.off('admin:user_registered', onRegistered) }
-  }, [queryClient])
-
-  // Optimistically bump pendingCount when a new user report arrives, then sync from server
-  useEffect(() => {
-    const socket = getSocket()
-    if (!socket) return
-    const onNewReport = () => {
-      // Immediately increment the badge — no waiting for a network round-trip
-      queryClient.setQueriesData<{ reports: unknown[]; hasMore: boolean; pendingCount: number }>(
-        { queryKey: ['admin', 'user-reports'] },
-        (old) => old ? { ...old, pendingCount: old.pendingCount + 1 } : old,
-      )
-      // Then refetch in the background to get the full updated list
-      queryClient.invalidateQueries({ queryKey: ['admin', 'user-reports'] })
-    }
-    socket.on('user_report:new', onNewReport)
-    return () => { socket.off('user_report:new', onNewReport) }
-  }, [queryClient])
-
-  // Invalidate stats when a user status changes (approval/rejection/suspension)
-  // so the pending-users sidebar badge clears immediately without waiting for TTL.
-  useEffect(() => {
-    const socket = getSocket()
-    if (!socket) return
-    const onStatsInvalidate = () => queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
-    socket.on('stats:invalidate', onStatsInvalidate)
-    return () => { socket.off('stats:invalidate', onStatsInvalidate) }
-  }, [queryClient])
 
   const pendingUsers = statsData?.stats?.scope === 'super_admin'
     ? (statsData.stats.users?.pending ?? 0)
@@ -249,13 +186,14 @@ export function AdminLayout() {
   // page — they are actively reading, so flashing a count is misleading noise.
   const isOnConversationsPage = location.pathname === '/admin' || location.pathname === '/admin/'
   const isOnTeamChatPage = location.pathname.startsWith('/admin/internal')
-  const isOnDMPage = location.pathname.startsWith('/admin/dm')
+  // Only suppress DM badge when a specific thread is open (has a partner ID in the URL)
+  const isOnDMThread = location.pathname.startsWith('/admin/dm') && location.pathname !== '/admin/dm'
 
   const getBadgeCount = (item: NavItem) => {
     if (item.showBadge === 'users') return pendingUsers
     if (item.showBadge === 'conversations') return isOnConversationsPage ? 0 : unreadConversations
     if (item.showBadge === 'team') return isOnTeamChatPage ? 0 : totalTeamUnread
-    if (item.showBadge === 'dm') return isOnDMPage ? 0 : totalDmUnread
+    if (item.showBadge === 'dm') return isOnDMThread ? 0 : totalDmUnread
     if (item.showBadge === 'reports') return pendingReports
     if (item.showBadge === 'user-reports') return pendingUserReports
     return 0
@@ -452,10 +390,13 @@ export function AdminLayout() {
                             ? 'text-primary'
                             : 'text-muted-foreground hover:text-foreground',
                         )}
-                        onClick={() => navigate(item.path)}
+                        onClick={() => {
+                          if ('vibrate' in navigator) navigator.vibrate(8)
+                          navigate(item.path)
+                        }}
                       >
                         {isActive && (
-                          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary" />
+                          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-[3px] rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.4)]" />
                         )}
                         <div className="relative">
                           <item.icon className={cn('h-[22px] w-[22px]', isActive && 'fill-primary/20')} />
@@ -465,7 +406,7 @@ export function AdminLayout() {
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] font-medium truncate w-full text-center leading-none">{item.label.split(' ')[0]}</span>
+                        <span className="text-[10px] font-medium truncate w-full text-center leading-none">{item.shortLabel}</span>
                       </button>
                     )
                   })}
@@ -481,9 +422,11 @@ export function AdminLayout() {
                           <button className={cn(
                             'flex flex-col items-center justify-center gap-0.5 shrink-0 flex-1 h-full transition-colors relative py-1 min-w-0',
                             overflowHasActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-                          )}>
+                          )}
+                          onClick={() => { if ('vibrate' in navigator) navigator.vibrate(8) }}
+                          >
                             {overflowHasActive && (
-                              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary" />
+                              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-[3px] rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.4)]" />
                             )}
                             <div className="relative">
                               <MoreHorizontal className="h-[22px] w-[22px]" />

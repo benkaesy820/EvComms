@@ -18,6 +18,10 @@ import { getSocket } from '@/lib/socket'
 import type { Message } from '@/lib/schemas'
 import { useAppConfig } from '@/hooks/useConfig'
 import { conversations as convApi } from '@/lib/api'
+import { toast } from '@/components/ui/sonner'
+import { audio } from '@/lib/audio'
+import { prependMessage, replaceTempMessage, softDeleteMessage, markMessagesRead, applyReaction } from '@/lib/messageCache'
+import type { MessagesCache } from '@/lib/messageCache'
 
 import { MessageList } from '@/components/chat/MessageList'
 function EmptyConversation() {
@@ -64,6 +68,16 @@ function ChatSkeleton() {
       ))}
     </div>
   )
+}
+
+/** Returns the display label for the subsidiary button in the unlocked (chooser) state. */
+function getSubsidiaryLabel(
+  selectedSubsidiaryId: string | null | undefined,
+  subsidiaries: Array<{ id: string; name: string }>,
+): string {
+  if (selectedSubsidiaryId === undefined) return 'Select area…'
+  if (selectedSubsidiaryId === null) return 'General Enquiry'
+  return subsidiaries.find(s => s.id === selectedSubsidiaryId)?.name ?? 'Select subsidiary'
 }
 
 export function ChatPage() {
@@ -132,7 +146,7 @@ export function ChatPage() {
       // Only update — never create a new conversation here
       // Pass null explicitly for General Enquiry (selectedSubsidiaryId === null),
       // never an empty string which would be stored as '' in the DB instead of NULL.
-      convApi.updateSubsidiary(convId, selectedSubsidiaryId ?? null).catch(() => { })
+      convApi.updateSubsidiary(convId, selectedSubsidiaryId ?? null).catch(() => toast.error('Failed to update subsidiary'))
     }
   }, [convExists, convData?.conversation?.id, convSubsidiaryId, selectedSubsidiaryId])
 
@@ -163,17 +177,28 @@ export function ChatPage() {
     if (selectedIds.size === 0) return
     setIsDeleting(true)
     const ids = Array.from(selectedIds)
-    // Process in chunks of 5 to avoid flooding the server
+    const cid = conversationId
+    if (!cid) { setIsDeleting(false); exitSelectMode(); return }
     const CHUNK = 5
+    let succeeded = 0
+    let failed = 0
     for (let i = 0; i < ids.length; i += CHUNK) {
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         ids.slice(i, i + CHUNK).map(messageId =>
-          deleteMsg.mutateAsync({ messageId, conversationId: conversationId!, scope: 'all' })
+          deleteMsg.mutateAsync({ messageId, conversationId: cid, scope: 'all' })
         )
       )
+      results.forEach(r => r.status === 'fulfilled' ? succeeded++ : failed++)
     }
     setIsDeleting(false)
     exitSelectMode()
+    if (failed === 0) {
+      toast.success(`Deleted ${succeeded} message${succeeded !== 1 ? 's' : ''}`)
+    } else if (succeeded > 0) {
+      toast.warning(`Deleted ${succeeded} of ${ids.length} message${ids.length !== 1 ? 's' : ''} — ${failed} failed`)
+    } else {
+      toast.error('Failed to delete messages')
+    }
   }, [selectedIds, deleteMsg, conversationId, exitSelectMode])
 
   const typingContent = useMemo(
@@ -210,6 +235,7 @@ export function ChatPage() {
 
     // 8s: slightly more than 2× the 3s heartbeat interval so the indicator
     // never flickers off between re-emits even on a slow connection.
+    // NOTE: AdminChatView uses the same constant — keep them in sync.
     const TYPING_TIMEOUT_MS = 8000
 
     const clearTypingTimer = (userId: string) => {
@@ -233,55 +259,41 @@ export function ChatPage() {
       setTypingUsers((prev) => { const n = new Map(prev); n.delete(data.userId); return n })
     }
 
-    type CacheShape = { pages: Array<{ success: boolean; messages: Message[]; hasMore: boolean }>; pageParams: unknown[] }
-    const updateCache = (updater: (old: CacheShape) => CacheShape) =>
-      queryClient.setQueryData<CacheShape>(['messages', conversationId], (old) => old ? updater(old) : old)
-
     const handleNewMessage = (data: { message: Message }) => {
       if (data.message.conversationId !== conversationId) return
-      updateCache((old) => {
-        if (!old || !old.pages || old.pages.length === 0) {
-          return { pages: [{ messages: [data.message], hasMore: false }] as any, pageParams: [] }
-        }
-        const exists = old.pages.some((p) => p.messages.some((m) => m.id === data.message.id))
-        if (exists) return old
-        return { ...old, pages: old.pages.map((p, i) => i === 0 ? { ...p, messages: [data.message, ...p.messages] } : p) }
-      })
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => prependMessage(old, data.message),
+      )
       // Visibility-based markRead handles this — no timer needed
     }
 
     const handleMessageSent = (data: { tempId: string; message: Message }) => {
       if (data.message.conversationId !== conversationId) return
-      updateCache((old) => {
-        const seen = new Set<string>()
-        return {
-          ...old,
-          pages: old.pages.map(p => ({
-            ...p,
-            messages: p.messages
-              .map(m => {
-                if (m.id !== data.tempId) return m
-                // Preserve optimistic media if server didn't return one (race with confirm)
-                const media = data.message.media ?? m.media
-                return { ...data.message, media }
-              })
-              .filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true })
-          }))
-        }
+      queryClient.setQueryData<MessagesCache>(['messages', conversationId], old => {
+        const { cache } = replaceTempMessage(old, data.tempId, data.message)
+        return cache
       })
     }
 
     const handleMessageDeleted = (data: { messageId: string; conversationId: string; deletedAt: number }) => {
       if (data.conversationId !== conversationId) return
-      updateCache((old) => ({
-        ...old,
-        pages: old.pages.map(p => ({ ...p, messages: p.messages.map(m => m.id === data.messageId ? { ...m, deletedAt: data.deletedAt } : m) }))
-      }))
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => softDeleteMessage(old, data.messageId, data.deletedAt),
+      )
     }
 
-    const handleConvArchived = (data: { conversationId: string }) => {
+    const handleConvArchived = (data: { conversationId: string; archivedBy: string; closingNote?: string | null }) => {
       if (data.conversationId === conversationId) {
         queryClient.invalidateQueries({ queryKey: ['conversation'] })
+        // Notify the user that their conversation was closed — use playError (not playDing)
+        // because this is a terminal state change, not an incoming message.
+        audio.playError()
+        toast.info('Your conversation has been closed by the support team.', {
+          duration: 8000,
+          description: data.closingNote ? `Note: ${data.closingNote}` : undefined,
+        })
       }
     }
 
@@ -291,41 +303,27 @@ export function ChatPage() {
       }
     }
 
-    const handleMessagesRead = (data: { conversationId: string; readBy: string; readAt: number }) => {
-      if (data.conversationId !== conversationId) return
-      updateCache((old) => ({
-        ...old,
-        pages: old.pages.map(p => ({
-          ...p,
-          messages: p.messages.map(m => {
-            const mAny = m as any
-            const newReadBy = Array.from(new Set([...(mAny.readBy || []), data.readBy]))
-            return { ...m, status: 'READ' as any, readBy: newReadBy }
-          })
-        }))
-      }))
+    const handleConvReopened = (data: { conversationId: string }) => {
+      if (data.conversationId === conversationId) {
+        queryClient.invalidateQueries({ queryKey: ['conversation'] })
+        audio.playSuccess()
+        toast.success('Your conversation has been re-opened.', { duration: 6000 })
+      }
     }
 
-    type MessageReaction = { id: string; messageId: string; userId: string; emoji: string }
+    const handleMessagesRead = (data: { conversationId: string; readBy: string; readAt: number }) => {
+      if (data.conversationId !== conversationId) return
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => markMessagesRead(old, data.readAt),
+      )
+    }
 
-    const handleReaction = (data: { messageId: string; reaction: MessageReaction | { userId: string; emoji: string }; action: 'add' | 'remove' }) => {
-      updateCache((old) => ({
-        ...old,
-        pages: old.pages.map(p => ({
-          ...p,
-          messages: p.messages.map(m => {
-            if (m.id !== data.messageId) return m
-            const reactions = m.reactions ?? []
-            if (data.action === 'add') {
-              const reaction: MessageReaction = 'id' in data.reaction
-                ? data.reaction as MessageReaction
-                : { id: '', messageId: data.messageId, userId: data.reaction.userId, emoji: data.reaction.emoji }
-              return { ...m, reactions: [...reactions.filter(r => r.userId !== reaction.userId), reaction] }
-            }
-            return { ...m, reactions: reactions.filter(r => !(r.userId === data.reaction.userId && r.emoji === data.reaction.emoji)) }
-          })
-        }))
-      }))
+    const handleReaction = (data: { messageId: string; reaction: import('@/lib/schemas').MessageReaction | { userId: string; emoji: string }; action: 'add' | 'remove' }) => {
+      queryClient.setQueryData<MessagesCache>(
+        ['messages', conversationId],
+        old => applyReaction(old, data.messageId, data.reaction, data.action),
+      )
     }
 
     socket.on('typing:start', handleTypingStart)
@@ -337,7 +335,20 @@ export function ChatPage() {
     socket.on('messages:read', handleMessagesRead)
     socket.on('conversation:archived', handleConvArchived)
     socket.on('conversation:unarchived', handleConvUnarchived)
-    socket.on('conversation:reopened', handleConvUnarchived)
+    socket.on('conversation:reopened', handleConvReopened)
+
+    // Tell the server we are actively viewing this conversation so it suppresses push notifications
+    socket.emit('conversation:focus', { conversationId })
+
+    // Also suppress push when tab regains focus
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        socket.emit('conversation:focus', { conversationId })
+      } else {
+        socket.emit('conversation:blur')
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     // Keep user-side conversation cache (unreadCount, archivedAt) in sync with
     const handleConvUpdated = (data: { conversationId: string; unreadCount?: number; assignedAdminId?: string | null }) => {
@@ -369,8 +380,11 @@ export function ChatPage() {
       socket.off('messages:read', handleMessagesRead)
       socket.off('conversation:archived', handleConvArchived)
       socket.off('conversation:unarchived', handleConvUnarchived)
-      socket.off('conversation:reopened', handleConvUnarchived)
+      socket.off('conversation:reopened', handleConvReopened)
       socket.off('conversation:updated', handleConvUpdated)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      // Tell server we are no longer viewing this conversation
+      socket.emit('conversation:blur')
       typingTimersRef.current.forEach(t => clearTimeout(t))
       typingTimersRef.current.clear()
     }
@@ -450,11 +464,7 @@ export function ChatPage() {
                   >
                     <Building2 className={`h-3.5 w-3.5 shrink-0 ${selectedSubsidiaryId ? 'text-primary' : ''}`} />
                     <span className="truncate text-[11px] sm:text-[13px] font-medium hidden sm:inline">
-                      {selectedSubsidiaryId
-                        ? (subsidiaries.find(s => s.id === selectedSubsidiaryId)?.name ?? 'Select subsidiary')
-                        : selectedSubsidiaryId === null
-                          ? 'General Enquiry'
-                          : 'Select area…'}
+                      {getSubsidiaryLabel(selectedSubsidiaryId, subsidiaries)}
                     </span>
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
                   </button>
@@ -562,14 +572,14 @@ export function ChatPage() {
                       })
                     }}
                     onDelete={selectMode ? undefined : (scope) => deleteMsg.mutate({ messageId: msg.id, conversationId: msg.conversationId, scope })}
-                    onRetry={(msg as any).status === 'FAILED' ? () => {
+                    onRetry={msg.status === 'FAILED' ? () => {
                       // Re-send failed message: strip the failed tempId from cache first,
                       // then fire a fresh send so a new optimistic entry is created
-                      queryClient.setQueryData<{ pages: Array<{ messages: import('@/lib/schemas').Message[]; hasMore: boolean; success: boolean }> }>(
+                      queryClient.setQueryData<{ pages: Array<{ messages: Message[]; hasMore: boolean; success: boolean }> }>(
                         ['messages', conversationId],
                         (old) => old ? { ...old, pages: old.pages.map(p => ({ ...p, messages: p.messages.filter(m => m.id !== msg.id) })) } : old
                       )
-                      handleSend({ type: msg.type, content: msg.content ?? undefined, mediaId: (msg.media as any)?.id, replyToId: msg.replyToId ?? undefined })
+                      handleSend({ type: msg.type, content: msg.content ?? undefined, mediaId: msg.media?.id, replyToId: msg.replyToId ?? undefined })
                     } : undefined}
                   />
                 </div>

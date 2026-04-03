@@ -159,7 +159,7 @@ function UserCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 shrink-0 self-start ml-auto md:ml-0 md:self-auto" onClick={e => e.stopPropagation()}>
+      <div className="flex items-center gap-2 shrink-0 self-center ml-auto md:ml-0" onClick={e => e.stopPropagation()}>
         {user.role === 'USER' && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -256,7 +256,7 @@ function UserCard({
       </div>
 
       {isPending && (
-        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-dashed">
+        <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-dashed">
           <Button
             size="sm"
             className="flex-1 h-8 rounded-lg text-xs gap-1.5"
@@ -481,7 +481,7 @@ const { data, isLoading, isError, hasNextPage, fetchNextPage, isFetchingNextPage
               className="pl-9 h-9 rounded-xl bg-muted/50 border-0 focus-visible:bg-background focus-visible:ring-2"
             />
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 scrollbar-hide">
             <FilterChip active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
               All
             </FilterChip>
