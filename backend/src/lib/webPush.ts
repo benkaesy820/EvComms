@@ -53,7 +53,12 @@ export async function sendPushToUser(
 
   if (subs.length === 0) return
 
-  const notification = JSON.stringify(payload)
+  const finalPayload = {
+    icon: `${env.appUrl}/icon-192.png`,
+    badge: `${env.appUrl}/icon-192.png`,
+    ...payload,
+  }
+  const notification = JSON.stringify(finalPayload)
   const expiredIds: string[] = []
 
   await Promise.allSettled(

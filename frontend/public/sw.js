@@ -66,8 +66,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body,
-    icon: icon || '/logo.svg',
-    badge: badge || '/logo.svg',
+    icon: icon || '/icon-192.png',
+    badge: badge || '/icon-192.png',
     tag: tag || 'evcomms-notification',
     data: data || {},
     vibrate: [100, 50, 100],

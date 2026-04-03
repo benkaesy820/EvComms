@@ -162,7 +162,7 @@
         }
     },
     "session": {
-        "maxDevices": 1,
+        "maxDevices": 2,
         "passwordResetTokenMinutes": 30,
         "refreshTokenDays": 90,
         "accessTokenDays": 30,
