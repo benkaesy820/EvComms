@@ -143,16 +143,23 @@ function AppInit({ children }: { children: React.ReactNode }) {
     if (isAuthenticated) refreshUser()
   }, [isAuthenticated, refreshUser])
 
+  // Admins/super-admins are always active — no approval gate needed for push.
+  const isEligibleForPush = isAuthenticated && (
+    user?.status === 'APPROVED' ||
+    user?.role === 'ADMIN' ||
+    user?.role === 'SUPER_ADMIN'
+  )
+
   // Register the service worker as early as possible so the push subscription
   // is ready before the permission prompt fires (3 s delay below).
   useEffect(() => {
-    if (isAuthenticated && user?.status === 'APPROVED' && isPushSupported()) {
+    if (isEligibleForPush && isPushSupported()) {
       registerServiceWorker().catch(() => { /* SW registration is best-effort — push notifications will still work via polling */ })
     }
-  }, [isAuthenticated, user?.status])
+  }, [isEligibleForPush])
 
   useEffect(() => {
-    if (isAuthenticated && user?.status === 'APPROVED') {
+    if (isEligibleForPush) {
       if (!isPushSupported()) return
       
       if (getNotificationPermission() === 'default' && !localStorage.getItem('push-prompt-dismissed')) {
@@ -173,7 +180,7 @@ function AppInit({ children }: { children: React.ReactNode }) {
         return () => clearTimeout(timer)
       }
     }
-  }, [isAuthenticated, user?.status, user?.id])
+  }, [isEligibleForPush, user?.id])
 
   useEffect(() => {
     const handleAuthExpired = () => {
