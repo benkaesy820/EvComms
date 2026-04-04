@@ -90,7 +90,7 @@ export async function subscribeToPush(): Promise<boolean> {
       return sendSubscriptionToServer(existingSubscription)
     }
 
-    const key = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    const key = urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource
     
     // Retry subscription up to 3 times with a short delay
     // Chrome sometimes throws AbortError on first attempt
