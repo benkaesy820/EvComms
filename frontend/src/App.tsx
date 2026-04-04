@@ -9,7 +9,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { NetworkBanner } from '@/components/NetworkBanner'
 import { useAuthStore } from '@/stores/authStore'
 import { useSocketConnection } from '@/hooks/useSocket'
-import { ApiError, notifications } from '@/lib/api'
+import { ApiError, notifications, conversations as convApi, announcementsApi, adminStats, adminUsers, adminAdmins, adminQueue, userReportsApi, adminInternal, adminDM, appConfig } from '@/lib/api'
 import type { Role, Status } from '@/lib/schemas'
 import { LeafLogo } from '@/components/ui/LeafLogo'
 import { isPushSupported, getNotificationPermission, subscribeToPush, registerServiceWorker, getActiveSubscription } from '@/lib/webPush'
@@ -55,8 +55,8 @@ const queryClient = new QueryClient({
         if (error instanceof ApiError && (error.status === 401 || error.status === 404)) return false
         return count < 3
       },
-      staleTime: 0,   // always refetch on remount; socket keeps cache fresh
-      refetchOnWindowFocus: true,
+      staleTime: Infinity,        // show cached data instantly — socket events invalidate when data changes
+      refetchOnWindowFocus: false, // no wasteful refetches on tab switch
     },
   },
 })
@@ -139,6 +139,7 @@ function AppInit({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const user = useAuthStore((s) => s.user)
   const reset = useAuthStore((s) => s.reset)
+  const queryClient = useQueryClient()
 
   // Prefetch all lazy-loaded page chunks in the background so navigation
   // feels instant — the code is already downloaded by the time the user clicks.
@@ -183,6 +184,47 @@ function AppInit({ children }: { children: React.ReactNode }) {
     // Low-priority background prefetch — doesn't block anything
     requestIdleCallback ? requestIdleCallback(prefetch) : setTimeout(prefetch, 2000)
   }, [])
+
+  // Prefetch critical API data for the user's role so the first navigation
+  // to any page is instant — data is already cached before the user clicks.
+  useEffect(() => {
+    if (!isAuthenticated || !user) return
+
+    const prefetchData = async () => {
+      const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'
+
+      // Shared: config + announcements (every authenticated page needs these)
+      await Promise.allSettled([
+        queryClient.prefetchQuery({ queryKey: ['appConfig'], queryFn: () => appConfig.get() }),
+        queryClient.prefetchQuery({ queryKey: ['announcements', { includeInactive: false, limit: 50 }], queryFn: () => announcementsApi.getAll({ includeInactive: false, limit: 50 }) }),
+      ])
+
+      if (isAdmin) {
+        // Admin pages: conversations, users, stats, reports, DMs, internal
+        await Promise.allSettled([
+          queryClient.prefetchInfiniteQuery({
+            queryKey: ['conversations', { archived: false }],
+            queryFn: () => convApi.getAdmin({ limit: 50 }),
+            initialPageParam: undefined,
+            getNextPageParam: (last) => last.nextCursor ?? undefined,
+          }),
+          queryClient.prefetchQuery({ queryKey: ['admin', 'stats'], queryFn: () => adminStats.get() }),
+          queryClient.prefetchQuery({ queryKey: ['admin', 'users', { status: 'APPROVED' }], queryFn: () => adminUsers.list({ status: 'APPROVED', limit: 50 }) }),
+          queryClient.prefetchQuery({ queryKey: ['admin', 'user-reports', { status: 'PENDING' }], queryFn: () => userReportsApi.adminList({ status: 'PENDING', limit: 50 }) }),
+          queryClient.prefetchQuery({ queryKey: ['dm', 'conversations'], queryFn: () => adminDM.listConversations() }),
+          queryClient.prefetchQuery({ queryKey: ['internal', 'unread'], queryFn: () => adminInternal.getUnreadCount() }),
+        ])
+      } else {
+        // User pages: own conversation
+        await Promise.allSettled([
+          queryClient.prefetchQuery({ queryKey: ['conversation'], queryFn: () => convApi.get() }),
+        ])
+      }
+    }
+
+    // Wait for the initial /me call to complete, then prefetch in background
+    requestIdleCallback ? requestIdleCallback(prefetchData) : setTimeout(prefetchData, 3000)
+  }, [isAuthenticated, user?.id, user?.role])
 
   useEffect(() => {
     if (isAuthenticated) refreshUser()

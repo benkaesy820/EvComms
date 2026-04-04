@@ -89,7 +89,23 @@ export function useSocketConnection() {
       resetRef.current()
     })
 
-
+    // On reconnect, invalidate all caches that could have missed events
+    // while the socket was disconnected. This is the safety net that
+    // guarantees no stale data survives a network blip.
+    socket.on('connect', () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'admins'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['user-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['announcements'] })
+      queryClient.invalidateQueries({ queryKey: ['announcements', 'public'] })
+      queryClient.invalidateQueries({ queryKey: ['internal', 'unread'] })
+      queryClient.invalidateQueries({ queryKey: ['dm', 'unread'] })
+      queryClient.invalidateQueries({ queryKey: ['dm', 'conversations'] })
+      queryClient.invalidateQueries({ queryKey: ['appConfig'] })
+    })
 
     socket.on('force_logout', (data) => {
       audio.playError()
@@ -474,6 +490,11 @@ export function useSocketConnection() {
           ...(data.email !== undefined && { email: data.email }),
         })
       }
+      // Invalidate all user-related caches — covers admin lists, user detail,
+      // and any page that displays user info.
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'admins'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user', data.id] })
     })
 
     socket.on('admin:user_registered', () => {
