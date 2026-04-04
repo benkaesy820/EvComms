@@ -718,10 +718,9 @@ export function useSocketConnection() {
       queryClient.invalidateQueries({ queryKey: ['announcements', 'public'] })
       if (data.announcement?.title) {
         audio.playAnnouncement()
-        toast.info(`📢 ${data.announcement.title}`)
-        // title = actual announcement title, body = short prompt to read it
+        toast.info(data.announcement.title)
         showOsNotification(
-          `📢 ${data.announcement.title}`,
+          data.announcement.title,
           'Tap to read the full announcement.',
           `announcement:${data.announcement.id}`,
           '/home/announcements'
@@ -866,7 +865,7 @@ export function useSocketConnection() {
             : 'You have a new direct message',
           action: {
             label: 'View',
-            onClick: () => { window.location.href = '/admin/dm' }
+            onClick: () => { window.location.href = `/admin/dm?partner=${data.message.senderId}` }
           }
         })
       }

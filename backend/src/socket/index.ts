@@ -2,7 +2,7 @@ import { Server as HttpServer } from 'http'
 import { Server, Socket } from 'socket.io'
 import jwt from 'jsonwebtoken'
 import { ulid } from 'ulid'
-import { eq, and, isNull, gt, ne, sql } from 'drizzle-orm'
+import { eq, and, isNull, gt, ne, sql, inArray } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { users, messages, conversations, auditLogs, sessions, media, internalMessages, internalMessageReads, announcements, dmRecipientStatus } from '../db/schema.js'
 import { env } from '../lib/env.js'
@@ -1159,37 +1159,36 @@ async function handleMessageSend(socket: Socket, user: SocketUser, data: unknown
     // Email notification for user
     await queueEmailNotification(conversation.userId).catch(e => logger.error({ e }, 'Socket Email enqueue failed'))
 
-    // Web push: notify the user only if they are NOT actively viewing this conversation.
-    // We check both WebSocket presence AND whether they have the tab focused on this chat.
+    // Web push: notify the user if they are offline OR connected but not actively viewing this chat.
     const userActiveView = activeConversationView.get(conversation.userId)
     const userIsActivelyViewing = userActiveView?.conversationId === context.conversationId
-    if (!serverState.connectedUsers.has(conversation.userId) || !userIsActivelyViewing) {
-      // Only send push if not connected at all, OR connected but not actively viewing this chat
-      if (!serverState.connectedUsers.has(conversation.userId)) {
-        const senderName = getUserFromCache(user.id)?.name ?? 'Support'
-        const preview = sanitizedContent
-          ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
-          : context.type === 'IMAGE' ? '📷 Image' : '📎 File'
-        sendPushToUser(conversation.userId, {
-          title: senderName,
-          body: preview,
-          tag: `conv:${context.conversationId}`,
-          data: { conversationId: context.conversationId, url: '/home/chat' },
-        }).catch(e => logger.warn({ e }, 'Push to user failed'))
-      }
-      // If connected but not actively viewing — the socket message:new will handle toast/sound
+    const userIsConnected = serverState.connectedUsers.has(conversation.userId)
+
+    if (!userIsConnected || !userIsActivelyViewing) {
+      const senderName = getUserFromCache(user.id)?.name ?? 'Support'
+      const preview = sanitizedContent
+        ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '\u2026' : '')
+        : context.type === 'IMAGE' ? '[Image]' : '[File]'
+      sendPushToUser(conversation.userId, {
+        title: senderName,
+        body: preview,
+        tag: `conv:${context.conversationId}`,
+        data: { conversationId: context.conversationId, url: '/home/chat' },
+      }).catch(e => logger.warn({ e }, 'Push to user failed'))
     }
   } else {
-    // User sent a message — notify the assigned admin if they are offline
+    // User sent a message — notify the assigned admin if they are offline OR
+    // connected but not actively viewing this conversation.
     const targetAdminId = conversation.assignedAdminId
     const adminActiveView = targetAdminId ? activeConversationView.get(targetAdminId) : null
     const adminIsActivelyViewing = adminActiveView?.conversationId === context.conversationId
-    if (targetAdminId && !serverState.connectedUsers.has(targetAdminId) && !adminIsActivelyViewing) {
-      // Push notification
+    const adminIsConnected = targetAdminId ? serverState.connectedUsers.has(targetAdminId) : false
+
+    if (targetAdminId && (!adminIsConnected || !adminIsActivelyViewing)) {
       const userInfo = getUserFromCache(conversation.userId)
       const preview = sanitizedContent
-        ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '…' : '')
-        : context.type === 'IMAGE' ? '📷 Image' : '📎 File'
+        ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '\u2026' : '')
+        : context.type === 'IMAGE' ? '[Image]' : '[File]'
       sendPushToUser(targetAdminId, {
         title: userInfo?.name ?? 'New Message',
         body: preview,
@@ -1304,20 +1303,19 @@ async function handleInternalMessageSend(socket: Socket, user: SocketUser, data:
 
   // Web push: notify offline admins about the new team message
   try {
-    const allAdminRows = await db.query.users.findMany({
-      where: eq(users.role, 'ADMIN'),
-      columns: { id: true },
-    })
-    const superAdminRows = await db.query.users.findMany({
-      where: eq(users.role, 'SUPER_ADMIN'),
+    const allAdmins = await db.query.users.findMany({
+      where: and(
+        inArray(users.role, ['ADMIN', 'SUPER_ADMIN']),
+        eq(users.status, 'APPROVED'),
+        ne(users.id, user.id)
+      ),
       columns: { id: true },
     })
     const senderName = getUserFromCache(user.id)?.name ?? 'Team'
     const preview = sanitized
-      ? sanitized.slice(0, 80) + (sanitized.length > 80 ? '…' : '')
-      : type === 'IMAGE' ? '📷 Image' : '📎 File'
-    const targets = [...allAdminRows, ...superAdminRows].filter(a => a.id !== user.id)
-    await Promise.allSettled(targets.map(admin => {
+      ? sanitized.slice(0, 80) + (sanitized.length > 80 ? '\u2026' : '')
+      : type === 'IMAGE' ? '[Image]' : '[File]'
+    await Promise.allSettled(allAdmins.map(admin => {
       if (!serverState.connectedUsers.has(admin.id)) {
         return sendPushToUser(admin.id, {
           title: `${senderName} (Team Chat)`,

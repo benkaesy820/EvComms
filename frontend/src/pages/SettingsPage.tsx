@@ -901,7 +901,7 @@ export function SettingsPage() {
                         try {
                           new Notification('🔔 Local Test', { 
                             body: 'If you see this, Windows/OS notifications are working!',
-                            icon: '/vite.svg'
+                            icon: '/icon-192.png'
                           })
                           toast.success('Local notification triggered')
                         } catch (e) {

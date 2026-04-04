@@ -21,8 +21,8 @@ export function showOsNotification(
   try {
     const n = new Notification(title, {
       body,
-      icon: '/vite.svg',
-      badge: '/vite.svg',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
       tag, // same tag collapses duplicate banners instead of stacking
     })
     if (url) {

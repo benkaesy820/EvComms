@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { and, desc, eq, isNull, lt, sql, ne } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt, sql, ne, inArray } from 'drizzle-orm'
 import { ulid, decodeTime } from 'ulid'
 import { db } from '../db/index.js'
 import { conversations, messages, media, auditLogs, messageReactions, users, registrationReports, announcements } from '../db/schema.js'
@@ -513,7 +513,7 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
   try {
     const allAdmins = await db.query.users.findMany({
       where: and(
-        sql`(role = 'ADMIN' OR role = 'SUPER_ADMIN')`,
+        inArray(users.role, ['ADMIN', 'SUPER_ADMIN']),
         eq(users.status, 'APPROVED'),
         ne(users.id, user.id)
       ),
@@ -967,7 +967,7 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
       if (!userOnline) {
         sendPushToUser(conversation.userId, {
           title: `Reply from ${senderShape.name}`,
-          body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
+          body: body.data.type === 'TEXT' && sanitizedContent ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '\u2026' : '') : '[Attachment]',
           data: { url: `/home/chat`, conversationId, type: 'chat' }
         }).catch(err => logger.error({ err }, 'Push send failed'))
       }
@@ -979,7 +979,7 @@ fastify.post('/for-user', { preHandler: requireApprovedUser }, async (request, r
         if (!adminOnline) {
           sendPushToUser(assignedAdminId, {
             title: `New Message from ${senderShape.name}`,
-            body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Sent an attachment',
+            body: body.data.type === 'TEXT' && sanitizedContent ? sanitizedContent.slice(0, 80) + (sanitizedContent.length > 80 ? '\u2026' : '') : '[Attachment]',
             data: { url: `/admin`, conversationId, type: 'chat' }
           }).catch(err => logger.error({ err }, 'Push send failed'))
           // Email fallback for offline admins

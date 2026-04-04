@@ -229,6 +229,14 @@ export async function authenticateRequest(
         sessionId: decoded.sid,
         mediaPermission: cachedUser.mediaPermission ?? false,
       }
+
+      // Sliding session: extend session activity on every authenticated request.
+      // Fire-and-forget — never block the request on this write.
+      db.update(sessions)
+        .set({ lastActiveAt: new Date() })
+        .where(eq(sessions.id, decoded.sid))
+        .catch(() => { /* transient DB error — session still valid via JWT */ })
+
       return
     }
 
@@ -255,6 +263,13 @@ export async function authenticateRequest(
       sessionId: decoded.sid,
       mediaPermission: user.mediaPermission ?? false
     }
+
+    // Sliding session: extend session activity on every authenticated request.
+    // Fire-and-forget — never block the request on this write.
+    db.update(sessions)
+      .set({ lastActiveAt: new Date() })
+      .where(eq(sessions.id, decoded.sid))
+      .catch(() => { /* transient DB error — session still valid via JWT */ })
   } catch (err) {
     if (err instanceof jwt.TokenExpiredError) {
       logger.debug({ requestId: request.requestId }, 'Token expired')

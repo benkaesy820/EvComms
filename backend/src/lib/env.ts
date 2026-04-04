@@ -13,7 +13,7 @@ const envSchema = z.object({
   TURSO_AUTH_TOKEN: z.string().min(1),
 
   JWT_SECRET: z.string().min(24),
-  JWT_EXPIRY_MINUTES: z.coerce.number().int().positive().default(15),
+  JWT_EXPIRY_MINUTES: z.coerce.number().int().positive().default(60),
   JWT_ISSUER: z.string().min(1).optional(),
   JWT_AUDIENCE: z.string().min(1).optional(),
 

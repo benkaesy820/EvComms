@@ -165,7 +165,7 @@ export async function configRoutes(fastify: FastifyInstance) {
       }
 
       logger.info({ userId: request.user?.id }, 'Brand updated')
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, brand: result.data })
     } catch (error) {
       logger.error({ error }, 'Brand update failed')
@@ -191,7 +191,7 @@ export async function configRoutes(fastify: FastifyInstance) {
         })
       }
       logger.info({ userId: request.user?.id }, 'Features updated')
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, features: result.data })
     } catch (error) {
       logger.error({ error }, 'Features update failed')
@@ -231,7 +231,7 @@ export async function configRoutes(fastify: FastifyInstance) {
         })
       }
       logger.info({ userId: request.user?.id }, 'Limits updated')
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, limits: result.data })
     } catch (error) {
       logger.error({ error }, 'Limits update failed')
@@ -254,7 +254,7 @@ export async function configRoutes(fastify: FastifyInstance) {
         })
       }
       logger.info({ userId: request.user?.id }, 'Subsidiaries updated')
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, subsidiaries: result.data })
     } catch (error) {
       logger.error({ error }, 'Subsidiaries update failed')
@@ -295,7 +295,7 @@ export async function configRoutes(fastify: FastifyInstance) {
         const enforced = await enforceMaxDevicesGlobally()
         logger.info(enforced, 'maxDevices enforcement after config change')
       }
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true })
     } catch (error) {
       logger.error({ error }, 'Security update failed')
@@ -337,7 +337,7 @@ export async function configRoutes(fastify: FastifyInstance) {
         })
       }
       logger.info({ userId: request.user?.id }, 'Storage updated')
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, storage: result.data })
     } catch (error) {
       logger.error({ error }, 'Storage update failed')
@@ -364,7 +364,7 @@ export async function configRoutes(fastify: FastifyInstance) {
         })
       }
       logger.info({ userId: request.user?.id }, 'Storefront updated')
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, storefront: result.data })
     } catch (error) {
       logger.error({ error }, 'Storefront update failed')
@@ -396,7 +396,7 @@ export async function configRoutes(fastify: FastifyInstance) {
       }
       logger.info({ userId: request.user?.id, patch: result.data }, 'Assignment config updated')
       // Broadcast so all connected admin clients re-fetch config immediately
-      try { getIO().emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
+      try { getIO().to('admins').emit('cache:invalidate', { keys: ['appConfig'] }) } catch (e) { logger.error(e, 'Failed to broadcast config update') }
       return reply.send({ success: true, assignment: result.data })
     } catch (error) {
       logger.error({ error }, 'Assignment config update failed')

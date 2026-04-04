@@ -66,27 +66,18 @@ export async function reportsRoutes(fastify: FastifyInstance) {
             })
             assignedUserIds = assignedConversations.map(c => c.userId)
 
-            // Include PENDING users who have no conversation at all (unassigned registrations).
-            // PERF FIX (High): Replace the full conversations table scan with a targeted
-            // subquery. Previously loaded ALL conversations into Node memory to build a Set.
-            // Now uses SQL EXISTS checks which hit the idx_conversations_user index directly.
-            const pendingUsersWithNoConv = (await db.query.users.findMany({
-                where: and(eq(users.status, 'PENDING'), eq(users.role, 'USER')),
-                columns: { id: true }
-            })).map(u => u.id)
-
-            // Filter to only users who truly have no conversation (active or deleted)
-            if (pendingUsersWithNoConv.length > 0) {
-                const withConvRows = await db.query.conversations.findMany({
-                    where: and(
-                        inArray(conversations.userId, pendingUsersWithNoConv),
-                        isNull(conversations.deletedAt)
-                    ),
-                    columns: { userId: true }
-                })
-                const withConvSet = new Set(withConvRows.map(c => c.userId))
-                unassignedPendingIds = pendingUsersWithNoConv.filter(id => !withConvSet.has(id))
-            }
+        // Include PENDING users who have no conversation at all (unassigned registrations).
+        // PERF FIX: Use a single SQL NOT EXISTS subquery instead of fetching all PENDING users
+        // into Node memory and then running a second query. This hits the idx_conversations_user
+        // index directly and scales to any number of registrations.
+        const unassignedPendingRows = await db.query.registrationReports.findMany({
+          where: and(
+            eq(registrationReports.status, 'PENDING'),
+            sql`NOT EXISTS (SELECT 1 FROM conversations c WHERE c.user_id = ${registrationReports.userId} AND c.deleted_at IS NULL)`
+          ),
+          columns: { userId: true }
+        })
+        unassignedPendingIds = unassignedPendingRows.map(r => r.userId)
 
             // Build condition: assigned to this admin OR (PENDING user with no conversation)
             const pendingUnassignedCondition = unassignedPendingIds.length > 0

@@ -248,13 +248,16 @@ export async function internalRoutes(fastify: FastifyInstance) {
       // Web Push: cross-instance online check so we don't push to admins
       // connected on another pod.
       const senderName = cachedSender?.name ?? 'An admin'
+      const preview = sanitized
+        ? sanitized.slice(0, 80) + (sanitized.length > 80 ? '\u2026' : '')
+        : body.data.type === 'IMAGE' ? '[Image]' : '[File]'
       for (const admin of otherAdmins) {
         const adminOnline = await isUserOnlineGlobally(admin.id)
         if (!adminOnline) {
           sendPushToUser(admin.id, {
-            title: `Team Message from ${senderName}`,
-            body: body.data.type === 'TEXT' && body.data.content ? body.data.content : 'Shared an attachment',
-            data: { url: '/admin/internal', type: 'team' }
+            title: `${senderName} (Team Chat)`,
+            body: preview,
+            data: { url: '/admin/internal' }
           }).catch(err => logger.error({ err }, 'Internal Push send failed'))
         }
       }

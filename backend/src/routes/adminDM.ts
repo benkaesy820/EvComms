@@ -282,12 +282,12 @@ export async function adminDMRoutes(fastify: FastifyInstance) {
       const senderName = getUserFromCache(user.id)?.name ?? 'DM'
       const preview = content
         ? content.slice(0, 80) + (content.length > 80 ? '\u2026' : '')
-        : type === 'IMAGE' ? '\ud83d\udcf7 Image' : '\ud83d\udcce File'
+        : type === 'IMAGE' ? '[Image]' : '[File]'
       sendPushToUser(adminId, {
         title: `${senderName} (Direct Message)`,
         body: preview,
         tag: `dm:${user.id}`,
-        data: { url: '/admin/dm' },
+        data: { url: `/admin/dm?partner=${user.id}` },
       }).catch(e => logger.warn({ e }, 'Push to DM recipient failed'))
     }
 

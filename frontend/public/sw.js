@@ -158,6 +158,10 @@ self.addEventListener('notificationclick', (event) => {
             if (focusedClient && 'navigate' in focusedClient) {
               return focusedClient.navigate(targetUrl)
             }
+            // focus() succeeded but client lacks navigate — open new window as fallback
+            if (self.clients.openWindow) {
+              return self.clients.openWindow(targetUrl)
+            }
           })
         }
       }

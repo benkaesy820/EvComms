@@ -375,10 +375,10 @@ export async function announcementRoutes(fastify: FastifyInstance) {
       await Promise.allSettled(candidates.map(candidate => {
         if (!serverState.connectedUsers.has(candidate.id)) {
           return sendPushToUser(candidate.id, {
-            title: `📢 ${announcement.title}`,
+            title: announcement.title,
             body: preview,
             tag: `announcement:${announcement.id}`,
-            data: { url: `/announcements/${announcement.id}` },
+            data: { url: '/home/announcements' },
           })
         }
         return Promise.resolve()
@@ -529,15 +529,6 @@ export async function announcementRoutes(fastify: FastifyInstance) {
       // ADMINs can only edit their own announcements
       if (existing.createdBy !== user.id) {
         return sendError(reply, 403, 'FORBIDDEN', 'You can only edit your own announcements.')
-      }
-
-      // ADMIN cannot edit announcements created by SUPER_ADMIN
-      const creator = await db.query.users.findFirst({
-        where: eq(users.id, existing.createdBy),
-        columns: { role: true }
-      })
-      if (creator?.role === 'SUPER_ADMIN') {
-        return sendError(reply, 403, 'FORBIDDEN', 'Cannot edit super admin announcements.')
       }
 
       // Must not edit an existing announcement that targets admins/super admins
@@ -790,7 +781,8 @@ export async function announcementRoutes(fastify: FastifyInstance) {
         return { vote: body.data.vote }
       })
 
-      // Fetch fresh counts and emit real-time update before returning
+      // Emit real-time vote update. The transaction may add, remove, or flip a vote,
+      // so we must read the actual counts after commit.
       let fresh: { upvoteCount: number; downvoteCount: number } | undefined
       try {
         fresh = await db.query.announcements.findFirst({
@@ -802,10 +794,8 @@ export async function announcementRoutes(fastify: FastifyInstance) {
       }
 
       if (fresh != null) {
-        const upvoteCount = fresh.upvoteCount
-        const downvoteCount = fresh.downvoteCount
-        emitToAdmins('announcement:vote:updated', { announcementId: id, upvoteCount, downvoteCount })
-        emitToUsers('announcement:vote:updated', { announcementId: id, upvoteCount, downvoteCount })
+        emitToAdmins('announcement:vote:updated', { announcementId: id, upvoteCount: fresh.upvoteCount, downvoteCount: fresh.downvoteCount })
+        emitToUsers('announcement:vote:updated', { announcementId: id, upvoteCount: fresh.upvoteCount, downvoteCount: fresh.downvoteCount })
       }
 
       return sendOk(reply, result)
