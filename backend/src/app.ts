@@ -139,7 +139,7 @@ fastify.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply
 
   fastify.addHook('onRequest', authenticateRequest)
 
-  const CSRF_EXEMPT_PREFIXES = ['/api/auth/login', '/api/auth/register', '/api/auth/password/forgot', '/api/auth/password/reset', '/api/auth/refresh', '/api/announcements/public']
+  const CSRF_EXEMPT_PREFIXES = ['/api/auth/login', '/api/auth/register', '/api/auth/password/forgot', '/api/auth/password/reset', '/api/auth/refresh', '/api/announcements/public', '/api/notifications']
 
   fastify.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
