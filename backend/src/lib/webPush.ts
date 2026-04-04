@@ -7,6 +7,11 @@ import { logger } from './logger.js'
 
 let initialized = false
 
+/**
+ * Initialize web-push with VAPID keys.
+ * Called lazily on first notification send to avoid startup failures
+ * when VAPID keys are missing in development.
+ */
 function ensureInitialized() {
   if (initialized) return
   if (!env.vapidPublicKey || !env.vapidPrivateKey) {
@@ -19,6 +24,7 @@ function ensureInitialized() {
     env.vapidPrivateKey,
   )
   initialized = true
+  logger.info({ publicKey: env.vapidPublicKey.slice(0, 20) + '...' }, 'Web push initialized')
 }
 
 export interface PushPayload {
@@ -28,16 +34,29 @@ export interface PushPayload {
   badge?: string
   tag?: string
   data?: Record<string, unknown>
+  /** Notification action buttons (rendered by the OS/browser) */
+  actions?: Array<{ action: string; title: string; icon?: string }>
+  /** If true, notification is shown silently (no sound/vibration) */
+  silent?: boolean
 }
 
 /**
  * Send a Web Push notification to every registered device for a given user.
  *
- * Reliability notes for PaaS:
- * - Uses Promise.allSettled so one bad subscription never blocks the others.
- * - Retries transient 5xx errors from the push service once after 1 s.
- * - Silently removes subscriptions that report 410 Gone or 404 Not Found.
- * - Batch-deletes expired subscriptions in a single query.
+ * Reliability features:
+ * - Promise.allSettled: one bad subscription never blocks the others
+ * - Retry transient 5xx/429 errors once after 1s backoff
+ * - Auto-remove 410 Gone / 404 Not Found subscriptions (expired/revoked)
+ * - Batch-delete expired subscriptions in a single query
+ * - TTL 24h: messages deliver when device comes back online
+ * - Urgency header: helps mobile browsers prioritize delivery
+ *
+ * Browser-specific notes:
+ * - Chrome/Edge: Uses FCM push service — requires valid VAPID keys
+ * - Firefox: Uses Mozilla AutoPush — more forgiving error messages
+ * - Safari: Not supported (requires APNs, different protocol)
+ * - Android Chrome: Notifications auto-dismiss after ~20s unless
+ *   requireInteraction is true (set in service worker)
  */
 export async function sendPushToUser(
   userId: string,
@@ -51,15 +70,25 @@ export async function sendPushToUser(
     columns: { id: true, endpoint: true, p256dh: true, auth: true },
   })
 
-  if (subs.length === 0) return
+  if (subs.length === 0) {
+    logger.debug({ userId }, 'No push subscriptions found')
+    return
+  }
 
+  logger.debug({ userId, count: subs.length }, 'Sending push notification')
+
+  // Build the notification payload — always include icon/badge for consistency
+  // The service worker uses these as fallbacks if not provided in the payload
   const finalPayload = {
     icon: `${env.appUrl}/icon-192.png`,
     badge: `${env.appUrl}/icon-192.png`,
     ...payload,
   }
+
   const notification = JSON.stringify(finalPayload)
   const expiredIds: string[] = []
+  let successCount = 0
+  let failureCount = 0
 
   await Promise.allSettled(
     subs.map(async (sub) => {
@@ -70,15 +99,21 @@ export async function sendPushToUser(
 
       try {
         await webpush.sendNotification(subscription, notification, {
-          TTL: 86400, // 24 h — deliver when the device comes back online
-          urgency: 'normal',
+          TTL: 86400, // 24h — deliver when the device comes back online
+          headers: { Urgency: 'high' }, // Helps mobile browsers prioritize
         })
+        successCount++
       } catch (err: any) {
         const status: number = err?.statusCode ?? 0
 
         // 410 Gone / 404 Not Found = subscription revoked or expired
+        // These should be removed from the database immediately
         if (status === 410 || status === 404) {
           expiredIds.push(sub.id)
+          logger.debug(
+            { userId, endpoint: sub.endpoint.slice(0, 60), status },
+            'Push subscription expired'
+          )
           return
         }
 
@@ -88,8 +123,10 @@ export async function sendPushToUser(
           try {
             await webpush.sendNotification(subscription, notification, {
               TTL: 86400,
-              urgency: 'normal',
+              headers: { Urgency: 'high' },
             })
+            successCount++
+            return
           } catch (retryErr: any) {
             logger.warn(
               {
@@ -99,19 +136,33 @@ export async function sendPushToUser(
               },
               'Push retry failed',
             )
+            failureCount++
+            return
           }
+        }
+
+        // 400 Bad Request = malformed subscription (invalid endpoint/keys)
+        // Remove from database to prevent future failures
+        if (status === 400 || status === 401 || status === 403) {
+          expiredIds.push(sub.id)
+          logger.warn(
+            { userId, endpoint: sub.endpoint.slice(0, 60), status },
+            'Push subscription invalid — removing'
+          )
           return
         }
 
+        // All other errors — log but don't remove (might be transient)
         logger.warn(
-          { userId, endpoint: sub.endpoint.slice(0, 60), status },
+          { userId, endpoint: sub.endpoint.slice(0, 60), status, message: err?.message },
           'Push send failed',
         )
+        failureCount++
       }
     }),
   )
 
-  // Batch-delete all expired subscriptions in a single query
+  // Batch-delete all expired/invalid subscriptions in a single query
   if (expiredIds.length > 0) {
     await db
       .delete(pushSubscriptions)
@@ -120,6 +171,18 @@ export async function sendPushToUser(
     logger.info(
       { userId, count: expiredIds.length },
       'Cleaned up expired push subscriptions',
+    )
+  }
+
+  if (failureCount > 0) {
+    logger.warn(
+      { userId, success: successCount, failed: failureCount },
+      'Push notification delivery summary'
+    )
+  } else {
+    logger.debug(
+      { userId, success: successCount },
+      'Push notification delivered'
     )
   }
 }
