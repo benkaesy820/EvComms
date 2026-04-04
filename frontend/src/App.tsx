@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { broadcastQueryClient } from '@tanstack/query-broadcast-client-experimental'
@@ -141,6 +141,15 @@ function AppInit({ children }: { children: React.ReactNode }) {
   const reset = useAuthStore((s) => s.reset)
   const queryClient = useQueryClient()
 
+  // Track whether /me has succeeded this session — prefetch must only fire
+  // after the browser cookie is confirmed valid by a successful /me response.
+  const [meReady, setMeReady] = useState(false)
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    refreshUser().then(() => setMeReady(true)).catch(() => setMeReady(false))
+  }, [isAuthenticated, refreshUser])
+
   // Prefetch all lazy-loaded page chunks in the background so navigation
   // feels instant — the code is already downloaded by the time the user clicks.
   useEffect(() => {
@@ -187,8 +196,9 @@ function AppInit({ children }: { children: React.ReactNode }) {
 
   // Prefetch critical API data for the user's role so the first navigation
   // to any page is instant — data is already cached before the user clicks.
+  // Only fires AFTER /me succeeds (meReady) so the browser cookie is valid.
   useEffect(() => {
-    if (!isAuthenticated || !user) return
+    if (!meReady || !user) return
 
     const prefetchData = async () => {
       const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'
@@ -222,9 +232,8 @@ function AppInit({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Wait for the initial /me call to complete, then prefetch in background
     requestIdleCallback ? requestIdleCallback(prefetchData) : setTimeout(prefetchData, 3000)
-  }, [isAuthenticated, user?.id, user?.role])
+  }, [meReady, user?.id])
 
   useEffect(() => {
     if (isAuthenticated) refreshUser()
