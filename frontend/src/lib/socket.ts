@@ -153,8 +153,6 @@ export function connectSocket(): AppSocket {
     reconnectionDelayMax: 10000,
     reconnectionAttempts: Infinity,
     timeout: 8000,
-    pingTimeout: 20000,
-    pingInterval: 25000,
     forceNew: false,
     autoConnect: false,
   }) as AppSocket

@@ -148,14 +148,6 @@ async function requestOnce(
 let consecutiveNetworkFailures = 0
 let networkWarningShown = false
 
-function isNetworkError(err: unknown): boolean {
-  if (err instanceof TypeError) {
-    const msg = err.message.toLowerCase()
-    return msg.includes('fetch') || msg.includes('network') || msg.includes('load')
-  }
-  return false
-}
-
 function handleNetworkFailure() {
   consecutiveNetworkFailures++
   if (consecutiveNetworkFailures >= 3 && !networkWarningShown) {
