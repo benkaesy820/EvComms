@@ -7,11 +7,9 @@ import { db } from '../db/index.js'
 import { users, messages, conversations, auditLogs, sessions, media, internalMessages, internalMessageReads, announcements, dmRecipientStatus } from '../db/schema.js'
 import { env } from '../lib/env.js'
 import { getConfig, getCacheConfig, getSessionConfig } from '../lib/config.js'
-import { clusterBus, serverState, addUserToCache, getUserFromCache, removeUserFromCache, getUserConversationId, touchConversationOwner, invalidateSessionCache, getSessionValidationCache, setSessionValidationCache } from '../state.js'
+import { serverState, addUserToCache, getUserFromCache, removeUserFromCache, getUserConversationId, touchConversationOwner, invalidateSessionCache, getSessionValidationCache, setSessionValidationCache } from '../state.js'
 import { LRUCache } from 'lru-cache'
 import { logger } from '../lib/logger.js'
-import { createAdapter } from '@socket.io/redis-adapter'
-import { getRedis } from '../redis.js'
 import { canUploadMedia, isAdmin, canAccessConversation } from '../lib/permissions.js'
 import {
   socketMessageSchema,
@@ -264,55 +262,6 @@ export function initSocket(httpServer: HttpServer): Server {
     maxHttpBufferSize: 1e6,
     connectTimeout: config.socket.authWindowMs
   })
-
-  const redisClient = getRedis()
-  if (redisClient) {
-    try {
-      const subClient = redisClient.duplicate()
-      subClient.on('error', (err) => {
-        logger.error({ err: err.message }, 'Redis subClient error')
-      })
-      io.adapter(createAdapter(redisClient, subClient))
-      logger.info('Socket.IO successfully bridged to Upstash Redis Adapter')
-
-    // --------------------------------------------------------------------------
-    // CLUSTER CACHE SYNCHRONIZATION
-    // --------------------------------------------------------------------------
-    // 1. Broadcast Local Mutations to Cluster
-    clusterBus.on('cache:update_user', (payload) => io?.serverSideEmit('cache:update_user', payload))
-    clusterBus.on('cache:remove_user', (payload) => io?.serverSideEmit('cache:remove_user', payload))
-    clusterBus.on('cache:invalidate_status', (payload) => io?.serverSideEmit('cache:invalidate_status', payload))
-    clusterBus.on('cache:invalidate_session', (payload) => io?.serverSideEmit('cache:invalidate_session', payload))
-    clusterBus.on('cache:invalidate_all_sessions', (payload) => io?.serverSideEmit('cache:invalidate_all_sessions', payload))
-    clusterBus.on('config:changed', (payload) => io?.serverSideEmit('config:changed', payload))
-    clusterBus.on('cache:update_email_preference', (payload) => io?.serverSideEmit('cache:update_email_preference', payload))
-
-    // 2. Receive Cluster Mutations (apply locally without re-emitting to prevent loops)
-    io.on('cache:update_user', (payload: any) => serverState.updateUserCache(payload.userId, payload.updates, false))
-    io.on('cache:remove_user', (payload: any) => serverState.removeUserFromCache(payload.userId, false))
-    io.on('cache:invalidate_status', (payload: any) => serverState.invalidateUsersByStatus(payload.status, false))
-    io.on('cache:invalidate_session', (payload: any) => serverState.invalidateSessionCache(payload.userId, payload.sessionId, false))
-    io.on('cache:invalidate_all_sessions', (payload: any) => serverState.invalidateAllUserSessions(payload.userId, false))
-    io.on('config:changed', (payload: any) => {
-      try {
-        const { reloadConfig } = require('../lib/config.js')
-        reloadConfig()
-      } catch { /* ignore reload errors on remote instances */ }
-    })
-    io.on('cache:update_email_preference', (payload: any) => {
-      serverState.emailPreferences.set(payload.userId, payload.value)
-    })
-    
-    // 3. Respond to multi-pod presence snapshots
-    io.on('presence:snapshot_request', (cb) => {
-      if (typeof cb === 'function') {
-        cb(Array.from(serverState.connectedUsers.keys()))
-      }
-    })
-    } catch (err) {
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Redis adapter setup failed — running without it (single-server mode)')
-    }
-  }
 
   io.use((socket, next) => {
     const clientIp = getSocketClientIp(socket)
@@ -787,27 +736,9 @@ function handleConnection(socket: Socket): void {
 
   // FIX #17: Respond to presence:get with a snapshot of all currently online user IDs
   // This allows admin DM and Internal Chat pages to populate presence dots on mount
-  socket.on('presence:get', async () => {
+  socket.on('presence:get', () => {
     if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') return
-    
-    let onlineUserIds = Array.from(serverState.connectedUsers.keys())
-    const redisClient = getRedis()
-    
-    if (redisClient && io) {
-      try {
-        const responses = await new Promise<string[][]>((resolve, reject) => {
-          ;(io!.timeout(2000) as any).serverSideEmit('presence:snapshot_request', (err: Error | null, res: string[][]) => {
-            if (err) reject(err)
-            else resolve(res || [])
-          })
-        })
-        const allSets = [onlineUserIds, ...(responses || [])]
-        onlineUserIds = Array.from(new Set(allSets.flat()))
-      } catch (err) {
-        logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Cluster presence fetch failed, falling back to local pod map')
-      }
-    }
-    
+    const onlineUserIds = Array.from(serverState.connectedUsers.keys())
     socket.emit('presence:snapshot', { onlineUserIds })
   })
 
@@ -1522,19 +1453,8 @@ export function emitToSuperAdmins(event: string, data: unknown, exceptUserId?: s
   }
 }
 
-export async function getOnlineAdminIdsGlobally(): Promise<string[]> {
-  if (!io) return getLocalOnlineAdmins()
-  try {
-    const sockets = await io.in('admins').fetchSockets()
-    const ids = new Set<string>()
-    for (const s of sockets) {
-      if (s.data?.user?.id) ids.add(s.data.user.id)
-    }
-    return Array.from(ids)
-  } catch (err) {
-    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Redis fetchSockets failed, falling back to local memory')
-    return getLocalOnlineAdmins()
-  }
+export function getOnlineAdminIdsGlobally(): string[] {
+  return getLocalOnlineAdmins()
 }
 
 function getLocalOnlineAdmins(): string[] {
@@ -1548,15 +1468,8 @@ function getLocalOnlineAdmins(): string[] {
   return ids
 }
 
-export async function isUserOnlineGlobally(userId: string): Promise<boolean> {
-  if (!io) return serverState.isUserConnected(userId)
-  try {
-    const sockets = await io.in(`user:${userId}`).fetchSockets()
-    return sockets.length > 0
-  } catch (err) {
-    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Redis fetchSockets failed, falling back to local memory')
-    return serverState.isUserConnected(userId)
-  }
+export function isUserOnlineGlobally(userId: string): boolean {
+  return serverState.isUserConnected(userId)
 }
 
 export function emitToUser(userId: string, event: string, data: unknown): void {

@@ -265,6 +265,8 @@ export function DMPage() {
     const socket = getSocket()
     if (!socket) return
     const handler = (data: { userId: string; isTyping: boolean }) => {
+      // Ignore typing from ourselves or from a different conversation
+      if (data.userId === currentUser?.id) return
       if (data.userId !== selectedId) return
       setPartnerTyping(data.isTyping)
       if (partnerTypingTimerRef.current) clearTimeout(partnerTypingTimerRef.current)
@@ -277,7 +279,7 @@ export function DMPage() {
     return () => {
       socket.off('dm:typing', handler)
     }
-  }, [selectedId])
+  }, [selectedId, currentUser?.id])
 
   const sendTyping = useCallback((isTyping: boolean) => {
     if (!selectedId) return

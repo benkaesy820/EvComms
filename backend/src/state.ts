@@ -347,7 +347,7 @@ class StateManager {
       this.runCleanup()
     }, cleanupCfg.intervalMs)
 
-    // Memory monitoring
+    // Memory monitoring — log at debug level, only warn when approaching limit
     this.memoryCheckInterval = setInterval(() => {
       this.checkMemoryUsage()
     }, cleanupCfg.memoryCheckIntervalMs)
@@ -684,17 +684,11 @@ class StateManager {
     
     this.currentMemoryUsage = total
 
-    // Log stats
-    logger.info({
+    // Log at debug level — only surface when debugging
+    logger.debug({
       totalMB: Math.round(total / 1024 / 1024),
       limitMB: MEMORY_LIMIT_MB,
-      utilization: Math.round((total / MEMORY_LIMIT_BYTES) * 100),
-      caches: {
-        userCache: { size: this.userCache.size, mb: Math.round(this.memoryStats.userCache / 1024 / 1024) },
-        sessionCache: { size: this.sessionValidationCache.size, mb: Math.round(this.memoryStats.sessionCache / 1024 / 1024) },
-        connectedUsers: this.connectedUsers.size,
-        conversationOwners: this.conversationOwners.size
-      }
+      utilization: Math.round((total / MEMORY_LIMIT_BYTES) * 100)
     }, 'Memory usage report')
 
     // Warn if approaching limit

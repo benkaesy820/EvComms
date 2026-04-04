@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/stores/authStore'
 import { connectSocket, disconnectSocket, getSocket, getActiveFocusedConversation } from '@/lib/socket'
 import type { Message } from '@/lib/schemas'
-import { auth as authApi } from '@/lib/api'
+import { auth as authApi, getAuthToken } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
 import { audio } from '@/lib/audio'
 import { showOsNotification } from '@/lib/notify'
@@ -32,6 +32,13 @@ export function useSocketConnection() {
       disconnectSocket()
       return
     }
+
+    // After page reload, Zustand rehydrates isAuthenticated from localStorage
+    // but memoryToken is null (JS memory wiped). The socket auth callback reads
+    // getAuthToken() which returns null → "No token provided" error.
+    // Skip socket connection until the token is available.
+    const token = getAuthToken()
+    if (!token) return
 
     const socket = connectSocket()
 
