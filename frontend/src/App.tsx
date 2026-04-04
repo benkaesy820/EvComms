@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { broadcastQueryClient } from '@tanstack/query-broadcast-client-experimental'
 import { Toaster } from '@/components/ui/sonner'
@@ -139,6 +139,50 @@ function AppInit({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const user = useAuthStore((s) => s.user)
   const reset = useAuthStore((s) => s.reset)
+
+  // Prefetch all lazy-loaded page chunks in the background so navigation
+  // feels instant — the code is already downloaded by the time the user clicks.
+  useEffect(() => {
+    const prefetch = async () => {
+      await Promise.allSettled([
+        import('@/pages/LoginPage'),
+        import('@/pages/RegisterPage'),
+        import('@/pages/ForgotPasswordPage'),
+        import('@/pages/ResetPasswordPage'),
+        import('@/pages/StatusPage'),
+        import('@/pages/ChatPage'),
+        import('@/pages/HomePage'),
+        import('@/pages/SettingsPage'),
+        import('@/pages/UserLayout'),
+        import('@/pages/UserAnnouncementsPage'),
+        import('@/pages/admin/AdminLayout'),
+        import('@/pages/admin/ConversationsPage'),
+        import('@/pages/admin/UsersPage'),
+        import('@/pages/admin/AdminsPage'),
+        import('@/pages/admin/AuditPage'),
+        import('@/pages/admin/AnnouncementsPage'),
+        import('@/pages/admin/AnnouncementEditorPage'),
+        import('@/pages/admin/InternalChatPage'),
+        import('@/pages/admin/UserDetailPage'),
+        import('@/pages/AnnouncementViewPage'),
+        import('@/pages/ReportViewPage'),
+        import('@/pages/admin/BrandPage'),
+        import('@/pages/admin/DMPage'),
+        import('@/pages/LandingPage'),
+        import('@/pages/TermsPage'),
+        import('@/pages/PrivacyPage'),
+        import('@/pages/FAQPage'),
+        import('@/pages/ContactPage'),
+        import('@/pages/admin/ReportsPage'),
+        import('@/pages/PublicAnnouncementsPage'),
+        import('@/pages/UserReportsPage'),
+        import('@/pages/admin/AdminUserReportsPage'),
+        import('@/pages/NotFoundPage'),
+      ])
+    }
+    // Low-priority background prefetch — doesn't block anything
+    requestIdleCallback ? requestIdleCallback(prefetch) : setTimeout(prefetch, 2000)
+  }, [])
 
   useEffect(() => {
     if (isAuthenticated) refreshUser()
