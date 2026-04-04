@@ -403,7 +403,7 @@ export function issueAuthCookies(reply: FastifyReply, token: string, refreshToke
       httpOnly: true,
       secure,
       sameSite,
-      path: '/api/auth/refresh',
+      path: '/api',
       maxAge: config.session.refreshTokenDays * 24 * 60 * 60
     })
   }
