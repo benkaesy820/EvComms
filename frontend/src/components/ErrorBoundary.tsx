@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from 'react'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw, WifiOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface Props {
@@ -10,6 +10,20 @@ interface Props {
 interface State {
   hasError: boolean
   error: Error | null
+}
+
+function isNetworkError(error: Error | null): boolean {
+  if (!error) return false
+  const msg = error.message.toLowerCase()
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('network') ||
+    msg.includes('load failed') ||
+    msg.includes('err_name_not_resolved') ||
+    msg.includes('err_internet_disconnected') ||
+    msg.includes('err_connection') ||
+    msg.includes('dynamic import')
+  )
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -26,15 +40,25 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback
 
+      const networkError = isNetworkError(this.state.error)
+
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
-            <AlertTriangle className="h-7 w-7 text-destructive" />
+          <div className={`flex h-14 w-14 items-center justify-center rounded-full ${networkError ? 'bg-amber-500/10' : 'bg-destructive/10'}`}>
+            {networkError
+              ? <WifiOff className="h-7 w-7 text-amber-500" />
+              : <AlertTriangle className="h-7 w-7 text-destructive" />
+            }
           </div>
           <div className="text-center space-y-1">
-            <h2 className="text-lg font-semibold">Something went wrong</h2>
+            <h2 className="text-lg font-semibold">
+              {networkError ? 'Connection issue' : 'Something went wrong'}
+            </h2>
             <p className="text-sm text-muted-foreground max-w-sm">
-              {this.state.error?.message || 'An unexpected error occurred'}
+              {networkError
+                ? 'Your internet connection seems unstable. Please check your network and try again.'
+                : this.state.error?.message || 'An unexpected error occurred'
+              }
             </p>
           </div>
           <Button

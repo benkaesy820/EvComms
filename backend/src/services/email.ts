@@ -118,27 +118,31 @@ export async function sendEmail(params: EmailParams): Promise<void> {
   return sendEmailInternal(params)
 }
 
-function buildEmailTemplate(title: string, userGreeting: string, bodyHtml: string) {
+function buildEmailTemplate(title: string, userGreeting: string, bodyHtml: string, iconEmoji?: string) {
   const brand = getBrand()
   const appUrl = env.appUrl
   const logoUrl = brand.logoUrl
-  
-  // Clean, high-contrast text header fallback that won't break in Outlook/Gmail
-  const headerContent = logoUrl 
-    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(brand.siteName)}" style="height: 48px; display: block; margin: 0 auto;">`
-    : `<span style="font-size: 28px; font-weight: 800; color: #008069; letter-spacing: -0.5px;">${escapeHtml(brand.siteName)}</span>`
-
+  const siteName = escapeHtml(brand.siteName)
   const year = new Date().getFullYear()
   const companyName = escapeHtml(brand.company || brand.siteName)
+  const supportEmail = escapeHtml(brand.supportEmail || '')
 
-  // #f5f7fa is a very subtle icy white-blue background
-  // The card has a firm 4px #008069 border top to give it a premium branded feel
+  const headerContent = logoUrl
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${siteName}" style="height: 48px; display: block; margin: 0 auto;" />`
+    : `<span style="font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">${siteName}</span>`
+
+  const iconRow = iconEmoji
+    ? `<tr><td style="padding: 0 40px 0; text-align: center;"><div style="width: 64px; height: 64px; background: rgba(255,255,255,0.15); border-radius: 50%; display: inline-block; line-height: 64px; font-size: 30px;">${iconEmoji}</div></td></tr>`
+    : ''
+
   return `<!DOCTYPE html>
 <html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
   <!--[if mso]>
     <xml>
       <o:OfficeDocumentSettings>
@@ -146,48 +150,64 @@ function buildEmailTemplate(title: string, userGreeting: string, bodyHtml: strin
       </o:OfficeDocumentSettings>
     </xml>
   <![endif]-->
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    body, table, td, p, a, h1, h2, h3, h4, h5, h6, span {
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    @media only screen and (max-width: 600px) {
+      .email-container { width: 100% !important; }
+      .email-padding { padding: 24px 20px !important; }
+      .email-header { padding: 32px 20px 16px !important; }
+      .email-body { padding: 16px 20px 32px !important; }
+      .email-btn { display: block !important; text-align: center !important; }
     }
   </style>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f5f7fa; -webkit-font-smoothing: antialiased;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f5f7fa; margin: 0; padding: 40px 20px;">
+<body style="margin: 0; padding: 0; background-color: #f0f2f5; -webkit-font-smoothing: antialiased; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <!-- Preview text (hidden) -->
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">${title}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f2f5;" role="presentation">
     <tr>
-      <td align="center">
+      <td align="center" style="padding: 40px 16px;">
         <!-- Main Card -->
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 580px; background-color: #ffffff; border-radius: 12px; border-top: 4px solid #008069; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05); margin: 0 auto;">
-          
-          <!-- Header -->
+        <table class="email-container" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 560px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08);" role="presentation">
+
+          <!-- Green Gradient Header -->
           <tr>
-            <td style="padding: 40px 40px 20px; text-align: center; background: #ffffff;">
-              ${headerContent}
+            <td class="email-header" style="padding: 40px 40px 24px; text-align: center; background: linear-gradient(135deg, #00a884 0%, #008069 50%, #006655 100%);">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+                ${iconRow}
+                <tr>
+                  <td style="padding-top: 16px; text-align: center;">
+                    ${headerContent}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
-          
+
           <!-- Body -->
           <tr>
-            <td style="padding: 20px 40px 40px;">
-              <h2 style="color: #0f172a; font-size: 22px; font-weight: 700; margin: 0 0 24px 0; letter-spacing: -0.3px;">${title}</h2>
-              <p style="margin: 0 0 24px 0; font-size: 16px; color: #334155; line-height: 1.6; font-weight: 400;">Hi ${escapeHtml(userGreeting)},</p>
+            <td class="email-body" style="padding: 32px 40px 40px;">
+              <h2 style="color: #0f172a; font-size: 22px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: -0.3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">${title}</h2>
+              <p style="margin: 0 0 24px 0; font-size: 15px; color: #64748b; line-height: 1.5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">Hi ${escapeHtml(userGreeting)},</p>
               ${bodyHtml}
             </td>
           </tr>
-          
-        </table>
-        
-        <!-- Outer Footer -->
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 580px; margin: 0 auto;">
+
+          <!-- Divider + Footer inside card -->
           <tr>
-            <td style="padding: 30px 20px; text-align: center;">
-              <p style="margin: 0 0 12px 0; font-size: 13px; color: #64748b; font-weight: 400;">&copy; ${year} ${companyName}. All rights reserved.</p>
-              <p style="margin: 0; font-size: 13px;">
-                <a href="${appUrl}/settings" style="color: #008069; text-decoration: none; font-weight: 500;">Update email preferences</a>
-              </p>
+            <td style="padding: 0 40px 32px; border-top: 1px solid #f1f5f9;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+                <tr>
+                  <td style="padding-top: 20px; text-align: center;">
+                    <p style="margin: 0 0 8px 0; font-size: 13px; color: #94a3b8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">This email was sent by ${siteName} &middot; <a href="${appUrl}/settings" style="color: #008069; text-decoration: none; font-weight: 500;">Email preferences</a></p>
+                    <p style="margin: 0; font-size: 12px; color: #cbd5e1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">&copy; ${year} ${companyName}. All rights reserved.</p>
+                    ${supportEmail ? `<p style="margin: 8px 0 0; font-size: 12px; color: #cbd5e1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;"><a href="mailto:${supportEmail}" style="color: #94a3b8; text-decoration: none;">${supportEmail}</a></p>` : ''}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
+
         </table>
       </td>
     </tr>
@@ -220,120 +240,142 @@ async function sendEmailInternal(params: EmailParams): Promise<void> {
 
   switch (params.type) {
     case 'accountApproved':
-      subject = `Welcome to ${appName} - Account Approved`
+      subject = `Welcome to ${appName} — Account Approved`
       htmlContent = buildEmailTemplate(
-        `Your account has been approved! 🎉`,
+        `Your account has been approved!`,
         user.name,
-        `<p style="margin: 0 0 32px 0; font-size: 16px; color: #334155; line-height: 1.6;">Great news! Your account has been securely verified and approved. You can now access your dashboard and start using ${escapeHtml(appName)}.</p>
-        <div style="text-align: left; margin: 32px 0;">
-          <a href="${appUrl}/login" style="${primaryBtn}">Go to Dashboard</a>
-        </div>
-        <p style="margin: 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+        `✅`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">Great news! Your account has been securely verified and approved. You now have full access to your dashboard and all platform features.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-bottom: 24px;">
+            <a href="${appUrl}/login" style="display: inline-block; background-color: #008069; color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">Go to Dashboard</a>
+          </td></tr>
+        </table>
+        <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">Welcome aboard,<br><span style="font-weight: 500; color: #64748b;">The ${escapeHtml(appName)} Team</span></p>`
       )
       break
 
     case 'accountRejected':
-      subject = `${appName} - Account Application Update`
+      subject = `${appName} — Account Application Update`
       htmlContent = buildEmailTemplate(
-        `Account Application Update`,
+        `Application Update`,
         user.name,
-        `<p style="margin: 0 0 24px 0; font-size: 16px; color: #334155; line-height: 1.6;">We have reviewed your application, but unfortunately, we are unable to approve your account at this time.</p>
-        ${params.reason ? `<div style="background: #fff1f2; border: 1px solid #fda4af; padding: 20px; border-radius: 8px; margin: 24px 0;"><p style="margin: 0; color: #e11d48; font-size: 15px; font-weight: 600;">Message from reviewer:<br><span style="display:inline-block; margin-top: 6px; font-weight: 400; color: #be123c;">${escapeHtml(params.reason)}</span></p></div>` : ''}
-        <p style="margin: 32px 0 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+        `📋`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">We've carefully reviewed your application, but unfortunately we're unable to approve your account at this time.</p>
+        ${params.reason ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"><tr><td style="padding-bottom: 24px;"><div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 16px 20px;"><p style="margin: 0; font-size: 13px; color: #dc2626; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Reviewer's Note</p><p style="margin: 8px 0 0; font-size: 14px; color: #991b1b; line-height: 1.5;">${escapeHtml(params.reason)}</p></div></td></tr></table>` : ''}
+        <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">Regards,<br><span style="font-weight: 500; color: #64748b;">The ${escapeHtml(appName)} Team</span></p>`
       )
       break
 
     case 'accountSuspended':
-      subject = `${appName} - Account Suspended`
+      subject = `${appName} — Account Suspended`
       htmlContent = buildEmailTemplate(
-        `<span style="color: #e11d48;">Account Suspended</span>`,
+        `Account Suspended`,
         user.name,
-        `<p style="margin: 0 0 24px 0; font-size: 16px; color: #334155; line-height: 1.6;">Your account access has been temporarily restricted to protect our community and ensure compliance with our platform policies.</p>
-        ${params.reason ? `<div style="background: #fff1f2; border: 1px solid #fda4af; padding: 20px; border-radius: 8px; margin: 24px 0;"><p style="margin: 0; color: #e11d48; font-size: 15px; font-weight: 600;">Reason for suspension:<br><span style="display:inline-block; margin-top: 6px; font-weight: 400; color: #be123c;">${escapeHtml(params.reason)}</span></p></div>` : ''}
-        <p style="margin: 32px 0 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+        `⚠️`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">Your account access has been temporarily restricted to protect our community and ensure compliance with our platform policies.</p>
+        ${params.reason ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"><tr><td style="padding-bottom: 24px;"><div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 16px 20px;"><p style="margin: 0; font-size: 13px; color: #dc2626; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Reason</p><p style="margin: 8px 0 0; font-size: 14px; color: #991b1b; line-height: 1.5;">${escapeHtml(params.reason)}</p></div></td></tr></table>` : ''}
+        <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">Regards,<br><span style="font-weight: 500; color: #64748b;">The ${escapeHtml(appName)} Team</span></p>`
       )
       break
 
     case 'conversationClosed':
-      subject = `${appName} - Your support conversation has been closed`
+      subject = `${appName} — Conversation Closed`
       htmlContent = buildEmailTemplate(
-        `Your conversation has been closed`,
+        `Conversation Resolved`,
         user.name,
-        `<p style="margin: 0 0 24px 0; font-size: 16px; color: #334155; line-height: 1.6;">Our support team has successfully resolved and closed your recent conversation.</p>
-        ${params.closingNote ? `<div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; margin: 24px 0;"><p style="margin: 0; color: #475569; font-size: 15px; font-weight: 600;">Note from the team:<br><span style="display:inline-block; margin-top: 6px; font-weight: 400; color: #334155;">${escapeHtml(params.closingNote)}</span></p></div>` : ''}
-        <div style="text-align: left; margin: 32px 0;">
-          <a href="${appUrl}/home/chat" style="${primaryBtn}">Return to Chat</a>
-        </div>
-        <p style="margin: 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+        `✅`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">Our support team has resolved and closed your recent conversation. Thank you for reaching out — we're always here if you need further assistance.</p>
+        ${params.closingNote ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"><tr><td style="padding-bottom: 24px;"><div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px;"><p style="margin: 0; font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Closing Note</p><p style="margin: 8px 0 0; font-size: 14px; color: #334155; line-height: 1.5;">${escapeHtml(params.closingNote)}</p></div></td></tr></table>` : ''}
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-bottom: 24px;">
+            <a href="${appUrl}/home/chat" style="display: inline-block; background-color: #008069; color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">Return to Chat</a>
+          </td></tr>
+        </table>
+        <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #64748b;">The ${escapeHtml(appName)} Team</span></p>`
       )
       break
 
     case 'newMessage': {
-      const messageText = params.messageCount === 1
-        ? 'You have 1 new message'
-        : `You have ${params.messageCount} new messages`
-      subject = `New message from ${appName}`
+      const msgLabel = params.messageCount === 1 ? 'new message' : `${params.messageCount} new messages`
+      subject = `${msgLabel.charAt(0).toUpperCase() + msgLabel.slice(1)} on ${appName}`
       htmlContent = buildEmailTemplate(
-        messageText,
+        `${params.messageCount} new message${params.messageCount === 1 ? '' : 's'}`,
         user.name,
-        `<p style="margin: 0 0 32px 0; font-size: 16px; color: #334155; line-height: 1.6;">You have ${params.messageCount === 1 ? 'a new message' : 'new messages'} waiting for you in your dashboard.</p>
-        <div style="text-align: left; margin: 32px 0;">
-          <a href="${appUrl}/messages" style="${primaryBtn}">View Message Securely</a>
-        </div>
-        <p style="margin: 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+        `💬`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">You have <strong style="color: #0f172a;">${params.messageCount} new message${params.messageCount === 1 ? '' : 's'}</strong> waiting for you on your dashboard.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-bottom: 24px;">
+            <a href="${appUrl}/home/chat" style="display: inline-block; background-color: #008069; color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">View Messages</a>
+          </td></tr>
+        </table>
+        <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">The ${escapeHtml(appName)} Team</p>`
       )
       break
     }
 
     case 'passwordReset':
       if (!params.resetToken) throw new Error('Reset token missing')
-      subject = `${appName} - Reset Your Password`
+      subject = `${appName} — Reset Your Password`
       htmlContent = buildEmailTemplate(
-        `Reset your password`,
+        `Reset Your Password`,
         user.name,
-        `<p style="margin: 0 0 24px 0; font-size: 16px; color: #334155; line-height: 1.6;">We received a security request to reset your password. If you initiated this request, please click the secure link below to choose a new password.</p>
-        <div style="text-align: left; margin: 32px 0;">
-          <a href="${appUrl}/reset-password?token=${encodeURIComponent(params.resetToken)}" style="${primaryBtn}">Reset Password</a>
-        </div>
-        <div style="margin: 32px 0 0; border-top: 1px solid #e2e8f0; padding-top: 24px;">
-          <p style="margin: 0 0 8px 0; font-size: 14px; color: #64748b; font-weight: 500;">If you did not request this, you can safely ignore this email. Your account remains secure.</p>
-          <p style="margin: 0; font-size: 14px; color: #94a3b8;">For your safety, this link will expire in 30 minutes.</p>
-        </div>`
+        `🔑`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">We received a request to reset your password. Click the button below to set a new one.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-bottom: 24px;">
+            <a href="${appUrl}/reset-password?token=${encodeURIComponent(params.resetToken)}" style="display: inline-block; background-color: #008069; color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">Reset Password</a>
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-top: 16px; border-top: 1px solid #f1f5f9;">
+            <p style="margin: 0 0 6px 0; font-size: 13px; color: #94a3b8;">Didn't request this? You can safely ignore this email — your account is secure.</p>
+            <p style="margin: 0; font-size: 12px; color: #cbd5e1;">This link expires in 30 minutes.</p>
+          </td></tr>
+        </table>`
       )
       break
 
     case 'passwordResetAdmin':
       if (!params.tempPassword) throw new Error('Temporary password missing')
-      subject = `${appName} - Temporary Password`
+      subject = `${appName} — Temporary Password`
       htmlContent = buildEmailTemplate(
-        `Your temporary password`,
+        `Your Temporary Password`,
         user.name,
-        `<p style="margin: 0 0 24px 0; font-size: 16px; color: #334155; line-height: 1.6;">An administrator has securely reset your password. Please use the temporary credentials below to log in.</p>
-        <div style="background-color: #f8fafc; padding: 24px; border-radius: 8px; margin: 32px 0; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 24px; font-weight: 700; letter-spacing: 4px; text-align: center; color: #0f172a; border: 1px dashed #cbd5e1;">
-          ${escapeHtml(params.tempPassword)}
-        </div>
-        <div style="text-align: left; margin: 32px 0;">
-          <a href="${appUrl}/login" style="${primaryBtn}">Login Now</a>
-        </div>
-        <div style="background: #fff1f2; padding: 16px; border-radius: 8px; border-left: 4px solid #e11d48; margin-top: 32px;">
-          <p style="margin: 0; font-size: 14px; color: #be123c; font-weight: 600;">Security Notice: Please immediately change your password in the Settings area upon successfully logging in.</p>
-        </div>`
+        `🔐`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">An administrator has reset your password. Use the credentials below to log in, then change your password immediately.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-bottom: 24px;">
+            <div style="background: #f0fdf4; border: 2px dashed #86efac; border-radius: 10px; padding: 20px; text-align: center; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 22px; font-weight: 700; letter-spacing: 3px; color: #166534;">
+              ${escapeHtml(params.tempPassword)}
+            </div>
+          </td></tr>
+          <tr><td style="padding-bottom: 24px;">
+            <a href="${appUrl}/login" style="display: inline-block; background-color: #008069; color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">Login Now</a>
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-top: 16px; border-top: 1px solid #f1f5f9;">
+            <p style="margin: 0; font-size: 13px; color: #dc2626; font-weight: 500;">⚠ Change your password in Settings immediately after logging in.</p>
+          </td></tr>
+        </table>`
       )
       break
 
     case 'adminNewMessage': {
-      const convText = params.conversationCount === 1
-        ? 'You have 1 new conversation'
-        : `You have ${params.conversationCount} new conversations with messages`
-      subject = `New messages waiting — ${appName}`
+      const convLabel = params.conversationCount === 1 ? 'conversation' : 'conversations'
+      subject = `${params.conversationCount} unread ${convLabel} on ${appName}`
       htmlContent = buildEmailTemplate(
-        convText,
+        `${params.conversationCount} unread ${convLabel}`,
         user.name,
-        `<p style="margin: 0 0 32px 0; font-size: 16px; color: #334155; line-height: 1.6;">You have ${params.conversationCount === 1 ? 'a new conversation' : 'new conversations'} with unread messages waiting for your response in the admin dashboard.</p>
-        <div style="text-align: left; margin: 32px 0;">
-          <a href="${appUrl}/admin" style="${primaryBtn}">Open Admin Dashboard</a>
-        </div>
-        <p style="margin: 0; font-size: 15px; color: #64748b; line-height: 1.5;">Best regards,<br><span style="font-weight: 500; color: #475569;">The ${escapeHtml(appName)} Team</span></p>`
+        `📬`,
+        `<p style="margin: 0 0 24px 0; font-size: 15px; color: #475569; line-height: 1.6;">You have <strong style="color: #0f172a;">${params.conversationCount} unread ${convLabel}</strong> with messages waiting for your response in the admin dashboard.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+          <tr><td style="padding-bottom: 24px;">
+            <a href="${appUrl}/admin" style="display: inline-block; background-color: #008069; color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">Open Dashboard</a>
+          </td></tr>
+        </table>
+        <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5;">The ${escapeHtml(appName)} Team</p>`
       )
       break
     }

@@ -153,7 +153,17 @@ export function connectSocket(): AppSocket {
     reconnectionDelayMax: 10000,
     reconnectionAttempts: Infinity,
     timeout: 8000,
+    pingTimeout: 20000,
+    pingInterval: 25000,
+    forceNew: false,
+    autoConnect: false,
   }) as AppSocket
+
+  // Suppress noisy DNS resolution errors — Socket.IO will keep retrying
+  // silently until the host resolves. No point flooding the console.
+  socket.io.on('error', () => { /* handled by useSocket connect_error */ })
+
+  socket.connect()
 
   return socket
 }

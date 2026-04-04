@@ -143,12 +143,49 @@ async function requestOnce(
   return fetch(url, { ...options, credentials: 'include', headers })
 }
 
+// Tracks consecutive network-level failures (not HTTP errors).
+// After 3 in a row, we assume the user has connectivity issues.
+let consecutiveNetworkFailures = 0
+let networkWarningShown = false
+
+function isNetworkError(err: unknown): boolean {
+  if (err instanceof TypeError) {
+    const msg = err.message.toLowerCase()
+    return msg.includes('fetch') || msg.includes('network') || msg.includes('load')
+  }
+  return false
+}
+
+function handleNetworkFailure() {
+  consecutiveNetworkFailures++
+  if (consecutiveNetworkFailures >= 3 && !networkWarningShown) {
+    networkWarningShown = true
+    // Dispatch a custom event so the UI can show a banner/toast
+    window.dispatchEvent(new CustomEvent('network:degraded'))
+  }
+}
+
+function handleNetworkSuccess() {
+  if (consecutiveNetworkFailures >= 3 && networkWarningShown) {
+    networkWarningShown = false
+    window.dispatchEvent(new CustomEvent('network:restored'))
+  }
+  consecutiveNetworkFailures = 0
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const isAuthPath = path.startsWith('/auth/')
-  let res = await requestOnce(path, options)
+  let res: Response
+  try {
+    res = await requestOnce(path, options)
+    handleNetworkSuccess()
+  } catch (err) {
+    handleNetworkFailure()
+    throw err
+  }
 
   // Wait! Do not refresh on login status checks (me endpoint) 
   // because that creates an infinite loop if the user is truly logged out

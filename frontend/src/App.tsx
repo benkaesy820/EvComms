@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { toast } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { NetworkBanner } from '@/components/NetworkBanner'
 import { useAuthStore } from '@/stores/authStore'
 import { useSocketConnection } from '@/hooks/useSocket'
 import { ApiError, notifications } from '@/lib/api'
@@ -213,6 +214,7 @@ function AppInit({ children }: { children: React.ReactNode }) {
 export function App() {
   return (
     <ErrorBoundary>
+      <NetworkBanner />
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
