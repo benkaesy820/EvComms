@@ -148,10 +148,7 @@ export const useAuthStore = create<AuthState>()(
             Object.keys(localStorage)
               .filter(k => k.startsWith(prefix))
               .forEach(k => localStorage.removeItem(k))
-            localStorage.removeItem('refresh_token')
           } catch { /* localStorage unavailable */ }
-        } else {
-          try { localStorage.removeItem('refresh_token') } catch {}
         }
         disconnectSocket()
         set({ user: null, isAuthenticated: false, isLoading: false })
@@ -175,14 +172,12 @@ export const useAuthStore = create<AuthState>()(
   ),
 )
 
-// Proactive Token Refresh Timer (for 15-minute tokens)
-// Refreshes 60-90 seconds before expiry to prevent 401s
+// Proactive Token Refresh Timer
+// Refreshes well before the JWT expires (60 min token → refresh every 45 min)
+// This 15-minute safety margin prevents 401s even on slow connections.
 let refreshTimer: ReturnType<typeof setTimeout> | null = null
 
-// SECURITY FIX: No longer relies on localStorage for token expiry
-// Uses fixed interval based on known JWT expiry (15 minutes)
-// This prevents tampering with expiry times
-const TOKEN_REFRESH_INTERVAL_MS = 13 * 60 * 1000 // Refresh every 13 minutes (for 15 min tokens)
+const TOKEN_REFRESH_INTERVAL_MS = 45 * 60 * 1000 // Refresh every 45 minutes (for 60 min tokens)
 
 function scheduleTokenRefresh() {
   if (refreshTimer) {
@@ -190,8 +185,6 @@ function scheduleTokenRefresh() {
     refreshTimer = null
   }
   
-  // SECURITY FIX: Use fixed interval instead of parsing JWT from localStorage
-  // This prevents users from tampering with expiry times
   refreshTimer = setTimeout(() => {
     useAuthStore.getState().refreshUser()
   }, TOKEN_REFRESH_INTERVAL_MS)
@@ -224,6 +217,17 @@ if (typeof window !== 'undefined') {
       } catch (e) {
         // Ignore parse errors safely
       }
+    }
+  })
+
+  // Sliding session: refresh token when tab becomes visible again.
+  // Browsers throttle setTimeout in background tabs, so a 45-min timer
+  // may never fire if the user keeps the tab hidden. This guarantees
+  // the token is fresh the moment the user returns — exactly how
+  // Snapchat, Gmail, and Facebook handle session continuity.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && useAuthStore.getState().isAuthenticated) {
+      useAuthStore.getState().refreshUser()
     }
   })
 }

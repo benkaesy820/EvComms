@@ -23,7 +23,7 @@ import {
   hashRefreshToken 
 } from '../middleware/auth.js'
 import { checkLoginLockout, recordLoginAttempt, createRateLimiters } from '../middleware/rateLimit.js'
-import { addUserToCache, getUserFromCache } from '../state.js'
+import { addUserToCache, getUserFromCache, invalidateAllUserSessions } from '../state.js'
 import { invalidateStatsCache } from '../routes/stats.js'
 import { queueHighPriorityEmail } from '../services/emailQueue.js'
 import { emitToAdmins, forceLogout, forceLogoutSession, getIO } from '../socket/index.js'
@@ -1191,6 +1191,9 @@ fastify.post('/register', { preHandler: rateLimiters.registration }, async (requ
     for (const s of oldSessions) {
       forceLogoutSession(s.id, 'Password changed')
     }
+
+    // Invalidate session validation cache so revoked sessions are immediately re-checked
+    invalidateAllUserSessions(dbUser.id)
 
     // Create new session using the canonical helper — ensures priority, audit log, lastSeenAt (#C)
     const { sessionId: newSessionId, expiresAt } = await createLoginSession(

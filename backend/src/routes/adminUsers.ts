@@ -7,7 +7,7 @@ import { hash } from '@node-rs/argon2'
 import { db } from '../db/index.js'
 import { auditLogs, sessions, userStatusHistory, users, refreshTokens, registrationReports, conversations, userReports } from '../db/schema.js'
 import { requireAdmin, requireSuperAdmin, requireUser, sendError, sendOk } from '../middleware/auth.js'
-import { updateUserCache } from '../state.js'
+import { updateUserCache, invalidateAllUserSessions } from '../state.js'
 import { sendEmail } from '../services/email.js'
 import { queueHighPriorityEmail } from '../services/emailQueue.js'
 import { emitToUser, emitToAdmins, forceLogout } from '../socket/index.js'
@@ -427,6 +427,7 @@ export async function adminUserRoutes(fastify: FastifyInstance) {
 
     if (body.data.status === 'REJECTED' || body.data.status === 'SUSPENDED') {
       forceLogout(userId, `Account ${body.data.status.toLowerCase()}`)
+      invalidateAllUserSessions(userId)
     }
 
     try {

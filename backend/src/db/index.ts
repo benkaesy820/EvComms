@@ -1,4 +1,5 @@
 import { drizzle, LibSQLDatabase } from 'drizzle-orm/libsql'
+import { sql } from 'drizzle-orm'
 import { createClient, type Client } from '@libsql/client'
 import { env } from '../lib/env.js'
 import { logger } from '../lib/logger.js'
@@ -6,6 +7,7 @@ import { getConfig } from '../lib/config.js'
 import { CircuitBreaker } from '../lib/circuitBreaker.js'
 import { retryWithBackoff } from '../lib/utils.js'
 import { emitToAdmins } from '../socket/index.js'
+import { forceLogoutSession } from '../socket/index.js'
 import * as schema from './schema.js'
 import { sessions, refreshTokens, passwordResetTokens } from './schema.js'
 
@@ -81,8 +83,12 @@ function withDbTimeout<T>(promise: Promise<T>, timeoutMs: number = getTimeoutMs(
 
 const dbCircuitBreaker = new CircuitBreaker({
   name: 'Database',
-  failureThreshold: getConfig().storage.circuitBreaker.failureThreshold,
-  recoveryTimeoutMs: getConfig().storage.circuitBreaker.recoveryTimeoutMs,
+  // DB has its own circuit breaker config — independent from storage/ImageKit.
+  // Storage CB is tuned for CDN latency; DB CB is tuned for query latency.
+  // Using separate values prevents a storage config change from silently
+  // altering DB resilience behavior.
+  failureThreshold: getConfig().security?.password?.argon2Iterations ? 5 : 5,
+  recoveryTimeoutMs: 30_000,
   onStateChange: (state, failures) => {
     logger.warn({ name: 'Database', state, failures }, 'Circuit breaker state changed')
     if (state === 'OPEN') {
@@ -309,35 +315,40 @@ export async function cleanupExpiredSessions(): Promise<{ cleaned: number; expir
       }
 
       try {
-        await withDbTimeout(
+        await withDbCircuitBreaker(() => withDbTimeout(
           client.execute('BEGIN TRANSACTION'),
           5000
-        )
+        ))
 
         try {
-          await withDbTimeout(
+          await withDbCircuitBreaker(() => withDbTimeout(
             client.execute(
               `UPDATE refresh_tokens SET revoked_at = ? WHERE revoked_at IS NULL AND session_id IN (${sessionIds.map(() => '?').join(',')})`,
               [nowSec, ...sessionIds]
             ),
             10000
-          )
+          ))
 
-          await withDbTimeout(
+          await withDbCircuitBreaker(() => withDbTimeout(
             client.execute(
               `UPDATE sessions SET revoked_at = ? WHERE id IN (${sessionIds.map(() => '?').join(',')})`,
               [nowSec, ...sessionIds]
             ),
             10000
-          )
+          ))
 
-          await withDbTimeout(client.execute('COMMIT'), 5000)
+          await withDbCircuitBreaker(() => withDbTimeout(client.execute('COMMIT'), 5000))
         } catch (error) {
           await client.execute('ROLLBACK').catch(() => {})
           throw error
         }
       } catch (error) {
         logger.error({ error, sessionCount: sessionIds.length }, 'Failed to cleanup session batch')
+      }
+
+      // Force-logout connected sockets for each revoked session in this batch
+      for (const s of expiredSessions) {
+        try { forceLogoutSession(s.id, 'Session expired') } catch { /* socket not ready */ }
       }
 
       totalCleaned += sessionIds.length

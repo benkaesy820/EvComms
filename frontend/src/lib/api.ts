@@ -55,24 +55,8 @@ function setAuthToken(token: string | null) {
   memoryToken = token
 }
 
-function getRefreshToken(): string | null {
-  try { return localStorage.getItem('refresh_token') } catch { return null }
-}
-
-function setRefreshToken(token: string | null) {
-  try {
-    if (token) localStorage.setItem('refresh_token', token)
-    else localStorage.removeItem('refresh_token')
-  } catch {}
-}
-
-// SECURITY FIX: Clear any stale memory tokens on module init to prevent cross-session contamination
-// This ensures a clean state when the app loads
-export function clearAuthMemory(): void {
-  memoryToken = null
-  memoryCsrfToken = null
-  setRefreshToken(null)
-}
+// Refresh token is delivered via httpOnly cookie by the backend.
+// No client-side storage needed — the browser sends it automatically with credentials: 'include'.
 
 function getCsrfToken(): string | null {
   if (memoryCsrfToken) return memoryCsrfToken
@@ -90,17 +74,25 @@ async function tryRefreshToken(): Promise<boolean> {
   }
   isRefreshing = true
   try {
-    const headers: Record<string, string> = {}
-    const rT = getRefreshToken()
-    if (rT) headers['x-refresh-token'] = rT
-
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
-      headers
     })
-    if (!res.ok) throw new Error('Refresh failed')
-    // Extract and store new token from refresh response
+    if (!res.ok) {
+      if (res.status === 401) {
+        const waiters = refreshWaiters
+        refreshWaiters = []
+        isRefreshing = false
+        waiters.forEach((cb) => cb(false))
+        return false
+      }
+      // Transient server error — tell waiters to retry with existing token
+      const waiters = refreshWaiters
+      refreshWaiters = []
+      isRefreshing = false
+      waiters.forEach((cb) => cb(true))
+      throw new Error(`Refresh failed with ${res.status}`)
+    }
     const data = await res.json().catch(() => ({}))
     if (data.token) {
       setAuthToken(data.token)
@@ -108,18 +100,22 @@ async function tryRefreshToken(): Promise<boolean> {
     if (data.csrfToken) {
       memoryCsrfToken = data.csrfToken
     }
-    if (data.refreshToken) {
-      setRefreshToken(data.refreshToken)
-    }
     const waiters = refreshWaiters
     refreshWaiters = []
     isRefreshing = false
     waiters.forEach((cb) => cb(true))
     return true
-  } catch {
+  } catch (err) {
+    const isTransient = err instanceof Error && (err.message.startsWith('Refresh failed with') || err.message === 'Failed to fetch' || err.message === 'NetworkError' || err.message === 'Network request failed')
     const waiters = refreshWaiters
     refreshWaiters = []
     isRefreshing = false
+    if (isTransient) {
+      // Server/network error — tell waiters the refresh "succeeded" so they
+      // retry their original request with the existing (still-valid) token.
+      waiters.forEach((cb) => cb(true))
+      throw err
+    }
     waiters.forEach((cb) => cb(false))
     return false
   }
@@ -157,11 +153,16 @@ async function request<T>(
   // Wait! Do not refresh on login status checks (me endpoint) 
   // because that creates an infinite loop if the user is truly logged out
   if (res.status === 401 && !isAuthPath && path !== '/me') {
-    const success = await tryRefreshToken()
-    if (success) {
-      res = await requestOnce(path, options)
-    } else {
-      window.dispatchEvent(new CustomEvent('auth:expired'))
+    try {
+      const success = await tryRefreshToken()
+      if (success) {
+        res = await requestOnce(path, options)
+      } else {
+        window.dispatchEvent(new CustomEvent('auth:expired'))
+      }
+    } catch {
+      // Transient error during refresh (5xx, network) — do NOT log out.
+      // Let the original 401 propagate; the token may still be valid.
     }
   }
 
@@ -184,11 +185,10 @@ async function request<T>(
       setAuthToken(data.token)
     }
     if ('refreshToken' in data && typeof data.refreshToken === 'string' && isAuthPath && (path === '/auth/login' || path === '/auth/refresh' || path === '/auth/password/change')) {
-      setRefreshToken(data.refreshToken)
+      // Refresh token is stored in httpOnly cookie by the backend — no client-side storage needed.
     }
     if (isAuthPath && (path === '/auth/logout' || path === '/auth/sessions/revoke-all')) {
       setAuthToken(null)
-      setRefreshToken(null)
     }
   }
   return data
