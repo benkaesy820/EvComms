@@ -417,27 +417,34 @@ export function App() {
     conversation?.id === selectedConversationId
       ? conversation
       : conversations.find((item) => item.id === selectedConversationId) ?? null;
+  const roleLabel = user?.role.replace("_", " ") ?? "Guest";
 
   return (
     <main className="appShell">
       <section className="hero">
-        <p className="eyebrow">{settings?.companyName ?? appConfig.companyName}</p>
-        <h1>{settings?.siteName ?? appConfig.siteName}</h1>
+        <div>
+          <p className="eyebrow">{settings?.companyName ?? appConfig.companyName}</p>
+          <h1>{settings?.siteName ?? appConfig.siteName}</h1>
+        </div>
         <p className="tagline">{settings?.tagline ?? appConfig.tagline}</p>
         <div className="statusRow" data-state={health}>
           <span className="statusDot" />
-          <span>API {health === "checking" ? "checking" : health}</span>
+          <span>{health === "ok" ? "Live" : health === "checking" ? "Checking" : "Offline"}</span>
         </div>
       </section>
 
       <section className="panel" aria-labelledby="next-title">
-        <h2 id="next-title">{user ? "Current Session" : mode === "signup" ? "Create Account" : "Log In"}</h2>
+        <div className="sectionHeader">
+          <h2 id="next-title">{user ? "Session" : mode === "signup" ? "Create Account" : "Log In"}</h2>
+          <span className="pill">{roleLabel}</span>
+        </div>
         {user ? (
           <div className="stack">
             <p>
-              {user.name} is signed in as <strong>{user.role}</strong>. Status:{" "}
-              <strong>{user.status}</strong>.
+              <strong>{user.name}</strong>
+              <span className="muted"> {user.email}</span>
             </p>
+            <span className="statusBadge" data-status={user.status}>{user.status}</span>
             <button type="button" onClick={onLogout}>
               Log out
             </button>
@@ -485,6 +492,27 @@ export function App() {
         )}
         {message ? <p className="notice">{message}</p> : null}
       </section>
+
+      {user?.role === "super_admin" ? (
+        <section className="panel metricsPanel" aria-label="Workspace summary">
+          <div className="metric">
+            <strong>{pendingUsers.length}</strong>
+            <span>Pending</span>
+          </div>
+          <div className="metric">
+            <strong>{agents.length}</strong>
+            <span>Agents</span>
+          </div>
+          <div className="metric">
+            <strong>{customers.length}</strong>
+            <span>Customers</span>
+          </div>
+          <div className="metric">
+            <strong>{notificationJobs.length}</strong>
+            <span>Jobs</span>
+          </div>
+        </section>
+      ) : null}
 
       {!user && mode === "login" ? (
         <section className="panel" aria-labelledby="reset-title">
