@@ -1,0 +1,17 @@
+{
+  "name": "ev-bus",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.4",
+  "scripts": {
+    "dev:web": "corepack pnpm --filter @evbus/web dev",
+    "dev:api": "corepack pnpm --filter @evbus/api dev",
+    "build": "corepack pnpm -r --workspace-concurrency=1 build",
+    "test": "node --experimental-strip-types --test \"packages/**/*.test.mjs\"",
+    "acceptance": "node scripts/v1-acceptance.mjs",
+    "typecheck": "corepack pnpm -r --workspace-concurrency=1 typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

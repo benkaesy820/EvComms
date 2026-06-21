@@ -1,0 +1,205 @@
+# What I Want: A Support App for Ev Bus
+
+*Hey, thanks for sitting down with me. Let me explain what I'm after — I'll just talk it through the way I think about it in my head, and you tell me what's realistic.*
+
+---
+
+## The short version
+
+I run a customer-facing business in Ghana. Right now my customers message me on WhatsApp, call my personal phone, and email — and it's chaos. I want **my own support app**. Something my customers log into, send me a message, and one of my team replies. Like WhatsApp, but it's *ours*, it's branded "Ev Bus", and it's organized so nothing gets lost.
+
+No tickets. No "your call is important to us". Just a conversation.
+
+---
+
+## Why I'm building this
+
+Let me be honest about what's broken right now:
+
+1. **Customers DM me personally on WhatsApp.** At 2am. On weekends. And if I don't reply in 5 minutes they think I'm ignoring them. I'm sleeping.
+2. **My team has 4 support guys.** When a customer messages, none of them know who's supposed to answer. So either everyone answers (chaos) or nobody does (customer gets mad).
+3. **When one of my guys is sick or quits**, his customers just stop getting replies. We don't even realize for days.
+4. **I can't prove anything.** Customer says "you promised me a refund last Tuesday." Did we? Who said it? No record.
+5. **Onboarding new customers is manual.** Someone wants access, they WhatsApp me, I check their info, I say yes or no. No trail, no consistency.
+6. **When we do a promotion, hundreds of people message at once** and we drown.
+
+I want all of this to stop being my problem.
+
+---
+
+## How it should work — from the customer's side
+
+A customer goes to our website. They see a clean page that says something like:
+
+> **"Support that actually feels human. Get a direct line to our team — no tickets, no queues. Just a conversation."**
+
+They click **Get Started** and sign up with their **name, email, Ghana phone number, and a password**. Optional: they can attach a short note — "I'm signing up because my last order arrived broken" — with a photo.
+
+Then they wait. Their account is **pending**. They see a message: *"We're reviewing your account, you'll get an email when you're approved."* That email comes from us, looks professional, has our logo.
+
+Once approved, they log in and — boom — there's their **chat thread** with us. One thread. It stays open forever. They type, we reply. They can:
+
+- Send **text, photos, documents** (PDFs, Word files).
+- See when we're **typing**.
+- See **blue ticks** when we've read their message.
+- **React with emoji** to our messages (👍, ❤️, 😂 — you know).
+- **Reply** to a specific message (quote it, like WhatsApp).
+- **Delete** their own message if they sent it by mistake (within a few minutes).
+
+If one of my agents **closes the conversation** ("Hey, your refund is processed, all sorted 🙏"), the customer sees a banner and a closing note. But they can **reopen it** anytime with one click — "Actually it's not sorted, here's what happened." Full history stays.
+
+When they're not in the app and we reply, they get a **notification on their phone**. And an **email** if they've been away for a bit. But not spammy — if we send 5 messages in a row, they get ONE email saying "you have 5 new messages", not five separate emails.
+
+Also — and this is important — it has to **work on their phone browser**. Most of my customers don't have laptops. They're on Android, on mobile data, sometimes on slow connections. The app has to be fast and light. Ideally they can **"Add to Home Screen"** and it feels like a real app, with push notifications and everything. But no app store — too much friction.
+
+---
+
+## How it should work — from my team's side
+
+Each of my support guys logs in and sees a **dashboard**. The most important thing on it is the **list of conversations**.
+
+Here's what I want that list to feel like:
+
+- **Whoever's been waiting longest is at the top.** If a customer sent a message 30 minutes ago and nobody's replied, they should be screaming red at the top of the list. I don't want my team "cherry-picking" the easy ones.
+- **Unread counts** next to each name.
+- **A little status** — is this customer mine? Unassigned? Being handled by Kwesi?
+- The **last message preview** so they can see context without opening it.
+
+When they click into a conversation, it should feel exactly like WhatsApp. Real-time. They type, the customer sees them typing. They send, the customer sees it instantly. No refresh button anywhere.
+
+### The part I really care about — **smart assignment**
+
+This is the bit I need you to get right. When a new customer sends their first message, the app should **automatically decide which of my guys handles them**. Not randomly. The logic I want:
+
+1. **Pick someone who's online right now.** No point assigning to a guy who went home.
+2. **Pick whoever has the fewest active conversations.** Balance the load. Don't give the new guy to my star agent who's already juggling 20 people.
+3. If we have **departments** (say, one guy handles Accra, another handles Kumasi), route based on that.
+4. **Don't bother me (the boss) unless everyone is drowning.** Only escalate to a Super Admin — me — when all my regular guys are, say, 80% full.
+5. If **nobody's online** at all (it's 3am), queue it and grab someone the moment they log in.
+
+And then there's the worst-case scenario: **what if Kwesi quits tomorrow?** His 15 active customers shouldn't just vanish. The app should **automatically reassign all his conversations** to the other guys the moment I suspend his account. I shouldn't have to do it by hand. That would be a nightmare.
+
+### What my guys need to do
+
+- Reply to customers (obviously).
+- **Send photos and documents** back to customers.
+- **Close/archive** a conversation when it's resolved, with a short note that gets emailed to the customer.
+- **Grant a customer permission** to upload files (by default they can't, to prevent spam).
+- **Reset a customer's password** if they forgot it — the app emails them a temporary one.
+- **Kick a customer out** if needed (suspend them).
+- See when their teammates are **online or away**.
+### My guys also need to talk to EACH OTHER
+Two ways:
+1. A **team group chat** — all the agents together. "Anyone seen this error before?" / "Boss, the payment system is down." Internal, customers never see it.
+2. **Private direct messages** between two agents. "Yo Kwesi, can you cover my shift?"
+Same WhatsApp feel — typing, read receipts, reactions, the works.
+---
+## How it should work — from MY side (the boss)
+I'm a **Super Admin**. I can see and do everything my guys can, plus:
+- **Approve or reject** new signups. With a reason if I reject. The customer gets an email either way.
+- **Suspend** a customer or an agent.
+- **Create new agent accounts** for new hires.
+- **Reassign** any conversation to any agent — override the auto-assignment.
+- **See every conversation in the system**, not just mine.
+- **Post announcements** that go out to everyone.
+- **See a full log** of who did what, when. If someone says "who suspended this customer last Thursday?", I can look it up. Who approved them, who reset their password, who closed their conversation — all there.
+- **Configure everything** without calling you. Message limits, file size limits, how many devices someone can be logged in on, the brand colors, the homepage text, the FAQ — all of it should have a settings page I can edit myself. And the changes should take effect **immediately**, everywhere, no restart.
+---
+## Announcements
+Sometimes I need to talk to all my customers at once. "We're doing maintenance Saturday night." Or "New promotion: 20% off this week!"
+I want to write an announcement — title, body, maybe an image — and choose who sees it:
+- **All customers**
+- **All my agents** (internal announcements)
+- **Everyone**
+Customers can **upvote or downvote** it (so I know if my promotions land), **react with emoji**, and **comment**. I can set an expiry date so old ones disappear.
+Some announcements I want to also show on the **public homepage** (before people log in) — like a banner about a new service. My regular agents should NOT be able to do that — only me. And agents should only be able to message customers, not each other (I don't need them plotting 😄).
+Offline customers get a **push notification** when I post.
+---
+## Reports
+
+Two kinds:
+
+1. **At signup**, a customer can attach a note — "Here's the problem I'm having." That's a **registration report**. When I approve them, it should follow them into their conversation so whoever handles them sees the context.
+2. **After they're approved**, customers can file **new reports** anytime — "My order is broken again", with a photo. My team sees it, investigates, and marks it **Resolved**. The customer sees the status update live.
+
+I want a **report queue** my team can work through, sorted by newest, with a badge showing how many are pending.
+
+---
+
+## Files and photos
+
+- Customers can upload **images** (JPEG, PNG, that sort of thing) and **documents** (PDF, Word).
+- Limits: let's say **5MB for images, 10MB for documents, max 50 uploads per day per person.** I want to be able to change these myself.
+- **Strip the location data out of photos** when they upload. I don't want my customers' GPS coordinates sitting in our files — that's a privacy disaster waiting to happen.
+- **Check the actual file**, not just the extension. Don't let someone rename `virus.exe` to `photo.jpg` and upload it.
+- **Don't store the same file twice** — if two customers upload the same promo image, store one copy.
+- **Documents should be private.** No public links. If someone needs to view a document, give them a temporary link that expires.
+
+---
+## Notifications — this is make or break
+I cannot overstate this. **If notifications don't work, the whole app is useless.** My customers will not sit refreshing a webpage. Here's what I need:
+- When they're **in the app and looking at the chat** — no notification needed, they see it.
+- When they're **on another tab or the app is in the background** — **push notification** on their phone/desktop. "New message from Ev Bus: Hi Kofi, your refund is processed..."
+- When they're **fully offline** for a while — an **email**. But smart: if 10 messages come in 30 seconds, send ONE email saying "You have 10 new messages", not ten emails. And never delay a notification more than, say, 5 minutes.
+- If a customer has **turned off email notifications** in their settings, respect that.
+- **Password reset emails and approval confirmations are special** — those send immediately, no debounce. When someone clicks "forgot password", the email should be in their inbox within seconds.
+And — here's a big one — **I want a backup email provider.** Right now I'm thinking Brevo, but if Brevo goes down for an hour, I want it to automatically fall back to Gmail. I never want to get a support ticket saying "I never got my password reset email." That's the most embarrassing support ticket a support company can get.
+---
+## Security stuff (I don't know the technical words, but...)
+- **Strong passwords.** Don't let people use "password123". Minimum 12 characters, mix of letters, numbers, symbols.
+- **Don't store passwords in plain text** obviously — hash them or whatever you do.
+- **Limit how many devices** someone can be logged in on. Say, 2. If they log in on a third phone, the first one gets kicked out.
+- **One click "log me out everywhere"** if they think they're hacked.
+- **Rate limit the login** — if someone tries the wrong password 10 times, lock them out for half an hour. Don't let people brute-force.
+- **Don't store people's IP addresses forever** — I think there's some GDPR rule about that. Anonymize them or truncate them or whatever.
+- **Log everything important.** Who logged in, who approved whom, who deleted what. If something goes wrong, I want to be able to trace it.
+---
+## Reliability
+The app **cannot go down**. I know that's unrealistic, but hear me out:
+- If the database has a hiccup, **retry**, don't just show an error.
+- If the email provider is down, **queue the emails** and send them when it comes back.
+- If the file storage breaks, **stop trying for a bit** (don't melt the server) and **tell me** — show a warning on my dashboard.
+- **Graceful shutdown** — if you need to restart the server, finish what's in progress. Don't drop a customer's message mid-send.
+And I want a **health dashboard** I can look at: is the database responding fast? Is storage working? How much memory are we using? How many people are connected right now?
+---
+## Branding — I want to control this myself
+Without calling you every time I want to change a word:
+- **Site name**: "Ev Bus"
+- **Tagline**, **company name**: "Ev Network"
+- **Support email**: ev@gmail.com (we'll get a real one later)
+- **Logo** upload
+- **Homepage text** — that hero headline, the buttons, what sections show
+- **Contact info** — response time ("Typically within 1-24 hours"), office hours, address, phone
+- **FAQ** — I'll write 8-10 common questions and answers
+- **Social links** (Twitter, Instagram, etc. — we'll fill these in)
+- **Legal text** — terms and privacy dates, company registration number, VAT number
+When I change any of this, it should update **everywhere instantly** — every customer's browser should reflect it without them refreshing.
+---
+## Subsidiaries / departments
+We might grow into branches. Accra office. Kumasi office. Maybe a "Billing" department and a "Tech Support" department. I want to be able to:
+- Define these departments in settings.
+- **Assign each agent to one or more departments** (or leave them as "generalist" who handles anything).
+- When a customer comes in, **route them to an agent in the right department.**
+---
+## Performance
+- It has to feel **instant**. Like, genuinely instant. No spinner when I send a message.
+- It has to handle **500 people signing up in an hour** when we run a promotion, without falling over.
+- It has to be **cheap to run.** We're a Ghanaian business, we're not made of dollars. I don't want a $500/month AWS bill. Find the cheap option.
+- **Mobile data is expensive here.** Don't make the app download 5MB every time someone opens it.
+---
+## What I DON'T want (so we're clear)
+- ❌ **Voice or video calls.** Too much bandwidth, too complex, not what we do.
+- ❌ **A public community forum.** This is private 1-on-1 support.
+- ❌ **E-commerce or payments.** We handle payments elsewhere.
+- ❌ **An AI chatbot.** The whole point is HUMAN support. If I wanted a bot I'd use the form on my website.
+- ❌ **A mobile app in the app stores.** Too much friction for customers to install. Browser + "add to home screen" is enough.
+- ❌ **Multi-language** for v1. English only. We'll add Twi later if it takes off.
+- ❌ **A ticket system.** I hate tickets. That's the whole reason we're building this.
+---
+## The dream
+Picture this: A customer, Kofi, signs up at 9pm Tuesday. By 9am Wednesday I've approved him — he got a nice email, he's excited. By 9:05am he's chatting with Ama (one of my agents) who picked him up automatically because she was online and had the lightest load. Kofi's problem is solved by 9:20am. He's happy. Ama's happy. I'm happy.
+Six months later, Kofi comes back with a new question. He opens the app, and there's his whole history with us — every message, every promise, every photo. Nothing lost.
+Meanwhile, I'm looking at my dashboard and I can see Ama's handling 12 conversations today, Kwesi's out sick but his 8 customers got auto-reassigned to the others, nobody's been waiting more than 4 minutes, and the announcement I posted about Saturday maintenance has 47 upvotes.
+That's the dream. **Make me that.**
+---
+*So — can you build this? How long? What do you need from me? And be honest about what's hard versus what's easy. I'd rather know now than find out in month three.*

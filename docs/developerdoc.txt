@@ -1,0 +1,634 @@
+# Developer Document: Ev Bus Support App
+
+## 1. Engineering Summary
+
+Ev Bus is a branded customer support web app for a Ghanaian business. The product should feel like WhatsApp to customers and agents, but behind the scenes it needs the operational structure of a support platform: account approval, assignment, notifications, audit logs, admin controls, file safety, reports, and reliability tooling.
+
+The core principle is:
+
+Build a conversation system, not a ticket system.
+
+Customers should not see ticket numbers, queues, or bureaucratic support language. They should see one long-running conversation with Ev Bus. Agents and admins, however, need enough structure to ensure no message is lost, no customer is abandoned, and every important action can be traced.
+
+## 2. Product Principles
+
+1. Conversation first
+   - One persistent customer-to-company thread.
+   - Chat must feel real-time, lightweight, and familiar.
+   - Support should feel human, not procedural.
+
+2. No message disappears
+   - Every message, file, assignment, closure, approval, suspension, and admin action must be durable.
+   - Server restarts, network drops, offline agents, and staff changes must not lose work.
+
+3. Notifications are core infrastructure
+   - Push notifications and email notifications are required for the product to work.
+   - Email must support queueing, debounce, retries, and provider fallback.
+   - Password reset and approval/rejection emails bypass debounce and send immediately.
+
+4. Admin control without developer dependency
+   - Branding, text, limits, departments, agent capacity, FAQ, contact info, and policy settings should be editable from an admin settings page.
+   - Runtime settings should be database-backed and update without redeploying.
+
+5. Mobile-first and low-data
+   - Most users will be on phones, often Android, mobile data, and slow connections.
+   - The app must be installable as a PWA and optimized for small bundles, lazy loading, and compressed media.
+
+6. Security by default
+   - Passwords are hashed.
+   - Login is rate-limited.
+   - Private files use short-lived signed access.
+   - Uploaded images have EXIF/location metadata stripped.
+   - File type is detected by content, not extension.
+   - Important actions are audit logged.
+
+7. Cheap, boring, reliable technology
+   - Prefer proven infrastructure over exotic architecture.
+   - Optimize for low monthly running cost while keeping reliability acceptable.
+
+## 3. Recommended V1 Scope
+
+V1 should solve the current chaos before adding every advanced feature.
+
+### Must Have In V1
+
+- Customer registration with:
+  - name
+  - email
+  - Ghana phone number
+  - password
+  - optional registration note
+  - optional registration attachment if file support is included in V1
+- Pending account state.
+- Super Admin approval/rejection with email notification.
+- Customer login.
+- Agent login.
+- Super Admin login.
+- One persistent customer support conversation.
+- Real-time text chat.
+- Agent conversation dashboard.
+- Smart assignment for new active conversations.
+- Manual reassignment by Super Admin.
+- Close and reopen conversation.
+- Basic notification system:
+  - in-app realtime delivery
+  - push notification where supported
+  - debounced email notification for offline users
+  - immediate transactional emails for password reset and approval
+- Basic audit log.
+- Basic settings page for brand name, support email, upload limits, and assignment capacity.
+
+### Should Have In V1 If Time Allows
+
+- Image/document upload.
+- File upload permission toggle per customer.
+- Registration report carried into the customer conversation.
+- Agent online/away presence.
+- Read receipts.
+- Typing indicators.
+- PWA install prompt and service worker.
+
+### Defer After V1
+
+- Agent-to-agent group chat.
+- Agent private DMs.
+- Announcement voting, comments, and emoji reactions.
+- Public homepage announcement banners.
+- Advanced department routing.
+- Full health dashboard.
+- Deep homepage/FAQ/legal customization.
+- Message emoji reactions.
+- Reply-to-message quoting.
+- Customer message deletion window.
+- Advanced analytics.
+
+## 4. User Roles
+
+### Customer
+
+Can:
+- Register.
+- Wait for approval.
+- Log in after approval.
+- Use one persistent support conversation.
+- Send messages.
+- Upload files only if permitted.
+- View conversation status.
+- Reopen a closed conversation.
+- File reports after approval.
+- Manage notification preferences.
+- Reset password.
+- Log out everywhere.
+
+Cannot:
+- See other customers.
+- See internal agent notes or chats.
+- Access public file URLs.
+- Bypass suspension or pending approval.
+
+### Agent
+
+Can:
+- Log in to dashboard.
+- View conversations assigned to them.
+- View unassigned conversations if permission allows.
+- Reply to customers.
+- Send files.
+- Close/archive conversations with closing note.
+- Reopen conversations if needed.
+- Grant/revoke customer file upload permission.
+- Reset customer password via email flow.
+- Suspend customers if allowed by policy.
+- See teammates' online/away status.
+- Work report queue.
+
+Cannot:
+- Configure global business settings unless promoted.
+- Publish public homepage announcements.
+- Override all admin policies.
+
+### Super Admin
+
+Can:
+- Do everything agents can.
+- Approve/reject signups.
+- Create/suspend agents.
+- Suspend customers.
+- Reassign any conversation.
+- View every conversation.
+- Configure settings.
+- Manage departments.
+- Post announcements.
+- View audit logs.
+- View health/system status.
+
+## 5. Core Workflows
+
+### Customer Registration
+
+1. Customer submits registration form.
+2. System validates email, Ghana phone, password strength, and rate limits.
+3. Customer account is created with status `pending`.
+4. Optional registration note/report is stored.
+5. Super Admin sees pending signup in approval queue.
+6. Super Admin approves or rejects.
+7. Customer receives immediate email:
+   - approval email with login link
+   - rejection email with reason, if provided
+
+### First Customer Message
+
+1. Approved customer opens their conversation.
+2. Customer sends first message.
+3. Message is persisted before realtime broadcast.
+4. Assignment service checks whether conversation already has an active owner.
+5. If no owner, assignment service picks an agent using routing rules.
+6. Agent dashboard updates in real time.
+7. If assigned agent is offline or unavailable, notification rules apply.
+
+### Smart Assignment
+
+Assignment priority:
+
+1. Match department if the conversation/customer/report has a department.
+2. Prefer online available agents.
+3. Pick agent with fewest active conversations.
+4. Respect max active conversation capacity.
+5. Escalate to Super Admin only when regular agents exceed configured load threshold, for example 80%.
+6. If nobody is online, leave conversation queued/unassigned and assign when an eligible agent comes online.
+
+When an agent is suspended:
+
+1. Mark agent as suspended.
+2. Prevent new login/session activity.
+3. Find active conversations assigned to that agent.
+4. Reassign them using the same assignment service.
+5. Log every reassignment.
+6. Notify affected agents/admins.
+
+### Conversation Closing And Reopening
+
+1. Agent closes conversation with required closing note.
+2. Customer sees closed banner and note.
+3. Closing note is emailed immediately or through high-priority queue.
+4. Customer can reopen conversation.
+5. Full history remains visible.
+
+### Notification Flow
+
+1. If recipient is actively viewing the conversation, no external notification is needed.
+2. If recipient is online but not viewing, send push/in-app notification.
+3. If recipient is offline, queue email notification.
+4. Debounce email notifications per recipient/conversation.
+5. Maximum debounce delay should be configurable, default 5 minutes.
+6. If primary email provider fails, retry and/or fail over to backup provider.
+7. Log provider, status, failure reason, and retry count.
+
+## 6. Data Model Draft
+
+Main tables/entities:
+
+- users
+  - id
+  - role: customer, agent, super_admin
+  - name
+  - email
+  - phone
+  - password_hash
+  - status: pending, approved, rejected, suspended
+  - email_notifications_enabled
+  - created_at
+  - updated_at
+
+- sessions
+  - id
+  - user_id
+  - device_label
+  - token_hash
+  - ip_prefix_or_hash
+  - user_agent
+  - expires_at
+  - revoked_at
+
+- conversations
+  - id
+  - customer_id
+  - assigned_agent_id
+  - department_id
+  - status: open, closed, queued
+  - last_message_at
+  - last_customer_message_at
+  - last_agent_message_at
+  - closed_at
+  - closed_by
+  - closing_note
+
+- messages
+  - id
+  - conversation_id
+  - sender_id
+  - body
+  - reply_to_message_id
+  - deleted_at
+  - read_at
+  - created_at
+
+- message_attachments
+  - id
+  - message_id
+  - file_id
+
+- files
+  - id
+  - owner_id
+  - storage_key
+  - sha256_hash
+  - mime_type
+  - original_filename
+  - size_bytes
+  - kind: image, document
+  - metadata_stripped
+  - created_at
+
+- departments
+  - id
+  - name
+  - active
+
+- agent_departments
+  - agent_id
+  - department_id
+
+- reports
+  - id
+  - customer_id
+  - conversation_id
+  - title
+  - body
+  - status: pending, investigating, resolved
+  - created_at
+  - resolved_at
+  - resolved_by
+
+- announcements
+  - id
+  - author_id
+  - audience: customers, agents, everyone
+  - title
+  - body
+  - image_file_id
+  - show_public
+  - expires_at
+  - created_at
+
+- announcement_reactions
+  - id
+  - announcement_id
+  - user_id
+  - reaction
+
+- announcement_comments
+  - id
+  - announcement_id
+  - user_id
+  - body
+  - created_at
+
+- audit_logs
+  - id
+  - actor_id
+  - action
+  - target_type
+  - target_id
+  - metadata_json
+  - ip_prefix_or_hash
+  - created_at
+
+- settings
+  - key
+  - value_json
+  - updated_by
+  - updated_at
+
+- notification_jobs
+  - id
+  - recipient_id
+  - channel: push, email
+  - type
+  - payload_json
+  - status: queued, sent, failed, cancelled
+  - provider
+  - attempts
+  - next_attempt_at
+  - created_at
+
+## 7. Suggested Architecture
+
+### Frontend
+
+- Vite + React SPA/PWA.
+- Hosted on Cloudflare Pages as static assets.
+- Mobile-first web app.
+- PWA with service worker and web manifest.
+- Realtime chat UI.
+- Customer app and agent/admin dashboard can share one frontend codebase with role-based routing.
+- Use lazy loading for admin-heavy screens.
+- Keep initial customer bundle small.
+
+### Backend
+
+- Cloudflare Workers for API routes.
+- API handles authentication, users, settings, files, reports, announcements, and admin actions.
+- Cloudflare Workers plus Durable Objects for WebSocket realtime.
+- Durable Objects coordinate chat, typing, presence, read receipts, and dashboard updates.
+- Background work starts with TiDB-backed job tables and scheduled/triggered Worker processing.
+- Cloudflare Queues can be added later if job volume or reliability needs justify it.
+
+### Storage
+
+- TiDB Cloud Starter/free for core app data.
+- Cloudflare R2 for files when upload support is added.
+- Private file access through signed temporary URLs.
+- Hash files for deduplication.
+
+### Chosen Stack
+
+Cost-conscious, reliable stack:
+
+- Monorepo: pnpm workspace
+- Frontend: Vite + React SPA/PWA
+- Frontend hosting: Cloudflare Pages
+- Backend API: Cloudflare Workers
+- Realtime: WebSockets on Cloudflare Workers with Durable Objects
+- Database: TiDB Cloud Starter/free
+- Database access: TiDB Cloud Serverless Driver with Drizzle
+- Validation: Zod
+- Queue: TiDB-backed notification_jobs table first; Cloudflare Queues only if needed later
+- File storage: Cloudflare R2 later
+- Email: Brevo primary, Gmail/SMTP backup
+- Hosting: Cloudflare Pages + Cloudflare Workers, with TiDB Cloud for durable data
+
+This avoids a managed Node server for V1. The frontend is statically hosted, while dynamic behavior comes from Worker APIs, Durable Object WebSockets, and TiDB.
+
+## 8. Realtime Requirements
+
+Realtime events:
+
+- message.created
+- message.updated
+- message.deleted
+- message.read
+- conversation.assigned
+- conversation.closed
+- conversation.reopened
+- user.typing
+- user.presence_changed
+- report.created
+- report.status_changed
+- announcement.created
+- settings.updated
+
+Rules:
+
+- Persist important state before broadcasting events.
+- Realtime events should be idempotent.
+- Clients should recover missed events after reconnect by refetching state using timestamps or cursors.
+- Never rely only on WebSocket delivery for durable business actions.
+
+## 9. File Handling Requirements
+
+Allowed file types:
+
+- Images: JPEG, PNG, WebP if desired.
+- Documents: PDF, DOC, DOCX.
+
+Default limits:
+
+- Images: 5MB.
+- Documents: 10MB.
+- Uploads per user per day: 50.
+
+Implementation rules:
+
+- Detect file type from content signature/MIME sniffing.
+- Reject executable or mismatched content.
+- Strip EXIF/location metadata from images.
+- Hash file content with SHA-256 before final storage.
+- Deduplicate by hash where safe.
+- Store files privately.
+- Serve documents and private images through signed expiring links.
+- Audit file deletion and access-sensitive actions.
+
+## 10. Security Requirements
+
+- Password minimum 12 characters.
+- Require mix of letters, numbers, and symbols unless passphrase policy is later chosen.
+- Use modern password hashing such as Argon2id or bcrypt with strong parameters.
+- Login rate limit by account and IP prefix.
+- Lock account temporarily after repeated failed attempts.
+- Limit active sessions per user, default 2.
+- Support "log out everywhere."
+- Store IP addresses only as truncated values or salted hashes where possible.
+- Use CSRF protection if cookie auth is used.
+- Use secure, httpOnly cookies for web sessions where possible.
+- Validate all authorization checks server-side.
+- Keep customer files private.
+- Audit important actions.
+
+## 11. Admin Settings
+
+Settings should be database-backed and broadcast via `settings.updated`.
+
+Initial configurable settings:
+
+- site name
+- company name
+- tagline
+- support email
+- logo
+- brand colors
+- homepage headline/body/buttons
+- response time text
+- office hours
+- address
+- phone
+- FAQ items
+- social links
+- legal text
+- max image size
+- max document size
+- daily upload limit
+- default customer file upload permission
+- max active conversations per agent
+- super admin escalation threshold
+- max active sessions per user
+- email notification debounce window
+- push notification enable/disable
+
+## 12. Reliability Requirements
+
+- Database calls for critical writes should be retried only when safe.
+- Message creation must be transactional.
+- Email sending must be queued.
+- Failed emails should retry with backoff.
+- Email provider failure should trigger fallback provider.
+- File storage failures should trip a circuit breaker style pause after repeated failures.
+- Admin dashboard should show degraded service warnings.
+- Server shutdown should stop accepting new work, finish in-progress work where possible, and release cleanly.
+- Health checks should cover database, queue, storage, email provider, memory, and connected users.
+
+## 13. Performance Requirements
+
+- Optimized for mobile first.
+- Initial customer app should be small and fast.
+- Avoid loading admin dashboard code for customers.
+- Paginate or cursor-load old messages.
+- Compress images and generate thumbnails.
+- Avoid polling where realtime is available.
+- Must tolerate 500 signups in one hour.
+- Chat send should feel instant using optimistic UI, then reconcile with server confirmation.
+
+## 14. Testing Strategy
+
+Minimum test coverage:
+
+- Registration validation.
+- Approval/rejection workflow.
+- Login and rate limiting.
+- Session limit enforcement.
+- Message creation and delivery.
+- Assignment logic.
+- Agent suspension reassignment.
+- Conversation close/reopen.
+- Notification debounce.
+- Email provider fallback.
+- File type validation.
+- EXIF stripping.
+- Authorization rules by role.
+- Audit log creation for important actions.
+
+End-to-end tests:
+
+- Customer signs up, admin approves, customer chats with assigned agent.
+- Agent closes conversation, customer reopens.
+- Agent is suspended, active conversations reassign.
+- Offline customer receives debounced email.
+- Customer uploads valid/invalid files.
+
+## 15. Open Questions For Client
+
+1. Is file upload required in the first launch, or can agents enable it later?
+2. Should customers choose a department during signup/report creation, or should admins assign departments manually?
+3. What is the exact Ghana phone validation rule expected?
+4. Should agents be allowed to suspend customers in V1, or only Super Admin?
+5. Should support hours affect assignment/notifications?
+6. Do customers need to search old messages in V1?
+7. Does the business already own a domain for branded emails?
+8. Which provider should host production?
+9. Are there legal/privacy requirements specific to Ghana that must be reflected in data retention?
+10. What is the target launch date and budget range?
+
+## 16. Build Plan
+
+### Phase 1: Foundation
+
+- Project setup.
+- Auth and roles.
+- Database schema.
+- Settings foundation.
+- Audit log foundation.
+- Basic customer/admin/agent layouts.
+
+### Phase 2: Signup And Approval
+
+- Customer registration.
+- Pending state.
+- Admin approval queue.
+- Approval/rejection emails.
+- Password reset.
+
+### Phase 3: Core Chat
+
+- Conversation model.
+- Message model.
+- Realtime messaging.
+- Agent dashboard.
+- Smart assignment.
+- Close/reopen.
+- Basic notifications.
+
+### Phase 4: Files And Reports
+
+- Upload limits.
+- File validation.
+- EXIF stripping.
+- Private storage.
+- Reports queue.
+- Registration report handoff.
+
+### Phase 5: Admin Operations
+
+- Agent management.
+- Customer suspension.
+- Manual reassignment.
+- Departments.
+- Announcements.
+- Expanded settings.
+
+### Phase 6: Hardening
+
+- PWA polish.
+- Push notification reliability.
+- Email fallback.
+- Health dashboard.
+- Load testing.
+- Security review.
+- Backup and recovery plan.
+
+## 17. Engineering Warning
+
+The biggest project risk is trying to build every feature at once. The safest path is to build the core customer support loop first:
+
+signup -> approval -> chat -> assignment -> notification -> close/reopen -> audit
+
+Once that loop is stable, the rest of the system can grow without rewriting the foundation.

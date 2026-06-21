@@ -1,0 +1,292 @@
+# Build Plan: Ev Bus Support App
+
+## 1. Purpose
+
+Before writing meaningful application code, freeze the first build target and make the technical direction clear.
+
+The goal is not to plan forever. The goal is to avoid building the wrong foundation.
+
+## 2. Freeze V1 Scope
+
+V1 should solve the current support chaos first.
+
+### Include In V1
+
+- Customer signup.
+- Customer login.
+- Pending approval state.
+- Super Admin approval/rejection.
+- Customer support chat thread.
+- Agent dashboard.
+- Smart assignment.
+- Close/reopen conversation.
+- Basic email notifications.
+- Audit log.
+- Basic settings.
+- Mobile-first PWA shell.
+
+### Delay Until After V1
+
+- Agent private DMs.
+- Agent group chat.
+- Announcement comments/votes.
+- Advanced reports.
+- Deep branding controls.
+- Complex health dashboard.
+- Message reactions.
+- Reply-to-message quoting.
+- Customer message delete window.
+- Advanced department routing.
+
+## 3. Chosen Stack
+
+Use a simple, reliable, low-cost stack. Avoid unnecessary services at the beginning.
+
+### Final Direction
+
+- Monorepo: pnpm workspace.
+- Frontend: Vite + React SPA/PWA.
+- Frontend hosting: Cloudflare Pages.
+- Backend API: Cloudflare Workers.
+- Realtime: WebSockets on Cloudflare Workers with Durable Objects.
+- Database: TiDB Cloud Starter/free.
+- Database access: TiDB Cloud Serverless Driver with Drizzle.
+- Validation: Zod.
+- Queue: TiDB-backed notification_jobs table first; Cloudflare Queues only if needed later.
+- Files: Cloudflare R2 later.
+- Email: Brevo primary, Gmail/SMTP backup.
+- Hosting: Cloudflare Pages + Cloudflare Workers, with TiDB Cloud for data.
+
+### Deployment Shape
+
+- Cloudflare Pages serves static frontend assets: HTML, CSS, JavaScript, icons, manifest, and service worker.
+- The app remains dynamic by calling the Worker API after loading in the browser.
+- Cloudflare Workers handle auth, API routes, database access, settings, reports, and notification job creation.
+- Durable Objects coordinate WebSocket sessions for chat, typing, presence, read receipts, and dashboard updates.
+- TiDB is the durable source of truth for users, sessions, conversations, messages, settings, and jobs.
+- R2 stores private uploads when file support is added.
+
+### Stack Principle
+
+Prefer the smallest reliable architecture that can support:
+
+- realtime chat
+- durable messages
+- background jobs
+- email retries
+- private files
+- audit logs
+- mobile-first frontend
+
+Avoid server-side rendering for V1 unless a concrete need appears. Ev Bus is an app-first product behind login, so a static React PWA plus API is enough.
+
+## 4. Design The Main Data Model
+
+Define the core tables before implementation to avoid messy rewrites.
+
+Initial entities:
+
+- users
+- sessions
+- conversations
+- messages
+- files
+- reports
+- departments
+- audit_logs
+- settings
+- notification_jobs
+
+The data model must support:
+
+- customer, agent, and super admin roles
+- pending, approved, rejected, and suspended account states
+- one persistent customer conversation
+- assignment and reassignment
+- close/reopen history
+- notification queueing
+- auditability
+- runtime settings
+
+## 5. Define The Core User Flows
+
+The first implementation should be driven by exact workflows.
+
+### Customer Registration
+
+1. Customer submits signup form.
+2. System validates name, email, Ghana phone number, and password.
+3. Account is created as pending.
+4. Super Admin sees signup in approval queue.
+5. Super Admin approves or rejects.
+6. Customer receives immediate email.
+
+### First Customer Message
+
+1. Approved customer logs in.
+2. Customer opens support thread.
+3. Customer sends first message.
+4. Message is saved before realtime delivery.
+5. Conversation is assigned if it has no active agent.
+6. Agent dashboard updates.
+
+### Assignment To Agent
+
+1. Prefer matching department when available.
+2. Prefer online available agents.
+3. Pick the agent with fewest active conversations.
+4. Respect configured capacity limits.
+5. Escalate to Super Admin only when regular agents are overloaded.
+6. Queue conversation if no agent is online.
+
+### Agent Reply
+
+1. Agent opens assigned conversation.
+2. Agent sends message.
+3. Message is saved.
+4. Customer receives realtime update if online.
+5. Customer receives push/email notification if away or offline.
+
+### Offline Notification
+
+1. Detect recipient is not actively viewing the conversation.
+2. Queue notification job.
+3. Debounce email notifications.
+4. Send within configured max delay.
+5. Retry failed sends.
+6. Use backup provider if primary email provider fails.
+
+### Close Conversation
+
+1. Agent closes conversation with a short note.
+2. Conversation status changes to closed.
+3. Customer sees closed banner.
+4. Customer receives closing note by email.
+5. Audit log records who closed it and when.
+
+### Reopen Conversation
+
+1. Customer clicks reopen.
+2. Conversation returns to open.
+3. Existing history remains intact.
+4. Assignment is preserved or recalculated if needed.
+5. Agent dashboard updates.
+
+### Suspend Agent And Reassign Work
+
+1. Super Admin suspends agent.
+2. Agent sessions are revoked.
+3. Active conversations assigned to that agent are found.
+4. Conversations are reassigned using assignment logic.
+5. Every reassignment is audit logged.
+6. Affected agents/admins are notified.
+
+## 6. Milestone Build Plan
+
+### Milestone 1: App Foundation
+
+- Create project structure.
+- Add frontend shell.
+- Add backend API shell.
+- Add database connection.
+- Add environment configuration.
+- Add basic health endpoint.
+
+### Milestone 2: Auth And Roles
+
+- User model.
+- Password hashing.
+- Login/logout.
+- Session handling.
+- Role checks.
+- Account statuses.
+- Session limit foundation.
+
+### Milestone 3: Signup And Approval
+
+- Customer signup form.
+- Pending account state.
+- Super Admin approval queue.
+- Approve/reject actions.
+- Approval/rejection emails.
+- Audit logs for approval actions.
+
+### Milestone 4: Core Chat
+
+- Conversation model.
+- Message model.
+- Customer chat screen.
+- Agent conversation dashboard.
+- Realtime message delivery.
+- Basic unread state.
+
+### Milestone 5: Assignment System
+
+- Agent availability/presence foundation.
+- Active conversation counts.
+- Assignment service.
+- Manual reassignment.
+- Agent suspension reassignment.
+- Assignment audit logs.
+
+### Milestone 6: Notifications
+
+- Notification job table.
+- Email queue.
+- Debounce logic.
+- Retry logic.
+- Brevo primary provider.
+- Gmail/SMTP fallback provider.
+- Notification delivery logs.
+
+### Milestone 7: Files And Reports
+
+- Upload permissions.
+- Image/document validation.
+- File size limits.
+- Private object storage.
+- Registration report handoff.
+- Customer reports.
+- Report queue.
+
+### Milestone 8: Admin Settings
+
+- Settings table.
+- Brand basics.
+- Upload limits.
+- Assignment capacity.
+- Notification debounce settings.
+- Runtime settings refresh.
+
+### Milestone 9: Hardening And Deployment
+
+- PWA manifest and service worker.
+- Mobile optimization.
+- Security review.
+- Focused tests for critical flows.
+- Load test signup/chat basics.
+- Production deployment.
+- Backup and recovery plan.
+
+## 7. First Meaningful Code Order
+
+Do not start with visual polish.
+
+Start with the spine:
+
+1. Project skeleton.
+2. Database schema.
+3. Authentication.
+4. Roles and permissions.
+5. Signup and approval.
+6. Conversation and messages.
+7. Assignment.
+8. Notifications.
+
+The UI should grow around working flows, not pretend flows.
+
+## 8. Main Engineering Rule
+
+Never fake success.
+
+If a message, assignment, upload, approval, or notification fails, the system must save the truth, retry where appropriate, and make the failure visible to the right user or admin.
