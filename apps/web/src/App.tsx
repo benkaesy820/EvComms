@@ -38,11 +38,13 @@ import {
 
 type HealthState = "checking" | "ok" | "error";
 type Mode = "login" | "signup";
+type PublicView = "home" | "auth";
 type AppSettings = Awaited<ReturnType<typeof getSettings>>;
 
 export function App() {
   const [health, setHealth] = useState<HealthState>("checking");
   const [mode, setMode] = useState<Mode>("signup");
+  const [publicView, setPublicView] = useState<PublicView>("home");
   const [user, setUser] = useState<PublicUser | null>(null);
   const [agents, setAgents] = useState<PublicUser[]>([]);
   const [customers, setCustomers] = useState<PublicUser[]>([]);
@@ -164,6 +166,7 @@ export function App() {
   async function onLogout() {
     await logout();
     setUser(null);
+    setPublicView("home");
     setMessage("Logged out.");
   }
 
@@ -418,15 +421,103 @@ export function App() {
       ? conversation
       : conversations.find((item) => item.id === selectedConversationId) ?? null;
   const roleLabel = user?.role.replace("_", " ") ?? "Guest";
+  const siteName = settings?.siteName ?? appConfig.siteName;
+  const companyName = settings?.companyName ?? appConfig.companyName;
+  const tagline = settings?.tagline ?? appConfig.tagline;
+
+  if (!user && publicView === "home") {
+    return (
+      <main className="homeShell">
+        <section className="homeHero" aria-labelledby="home-title">
+          <nav className="homeNav" aria-label="Primary">
+            <strong>{companyName}</strong>
+            <div className="homeNavActions">
+              <span className="statusRow" data-state={health}>
+                <span className="statusDot" />
+                <span>{health === "ok" ? "Live" : health === "checking" ? "Checking" : "Offline"}</span>
+              </span>
+              <button
+                type="button"
+                className="secondaryButton homeNavButton"
+                onClick={() => {
+                  setMode("login");
+                  setPublicView("auth");
+                }}
+              >
+                Log in
+              </button>
+            </div>
+          </nav>
+
+          <div className="homeHeroContent">
+            <p className="eyebrow">{companyName}</p>
+            <h1 id="home-title">{siteName}</h1>
+            <p>{tagline}</p>
+            <div className="homeActions">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("signup");
+                  setPublicView("auth");
+                }}
+              >
+                Start Support
+              </button>
+              <button
+                type="button"
+                className="secondaryButton"
+                onClick={() => {
+                  setMode("login");
+                  setPublicView("auth");
+                }}
+              >
+                Existing Account
+              </button>
+            </div>
+          </div>
+
+          <div className="homeServicePanel" aria-label="Support service summary">
+            <div>
+              <span>Response flow</span>
+              <strong>Customer to agent to resolution</strong>
+            </div>
+            <div>
+              <span>Account control</span>
+              <strong>Approval required before messaging</strong>
+            </div>
+            <div>
+              <span>Support channel</span>
+              <strong>One clear conversation thread</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="homeBand" aria-label="What customers can expect">
+          <article>
+            <strong>Request help</strong>
+            <p>Create an account and send a support message once approved.</p>
+          </article>
+          <article>
+            <strong>Stay in one thread</strong>
+            <p>Your replies, updates, and closure notes stay together.</p>
+          </article>
+          <article>
+            <strong>Handled by the right team</strong>
+            <p>Admins assign conversations and keep agents accountable.</p>
+          </article>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="appShell">
       <section className="hero">
         <div>
-          <p className="eyebrow">{settings?.companyName ?? appConfig.companyName}</p>
-          <h1>{settings?.siteName ?? appConfig.siteName}</h1>
+          <p className="eyebrow">{companyName}</p>
+          <h1>{user ? "Workspace" : siteName}</h1>
         </div>
-        <p className="tagline">{settings?.tagline ?? appConfig.tagline}</p>
+        <p className="tagline">{user ? tagline : "Sign in or create an account to continue."}</p>
         <div className="statusRow" data-state={health}>
           <span className="statusDot" />
           <span>{health === "ok" ? "Live" : health === "checking" ? "Checking" : "Offline"}</span>
@@ -438,6 +529,11 @@ export function App() {
           <h2 id="next-title">{user ? "Session" : mode === "signup" ? "Create Account" : "Log In"}</h2>
           <span className="pill">{roleLabel}</span>
         </div>
+        {!user ? (
+          <button type="button" className="textButton backHomeButton" onClick={() => setPublicView("home")}>
+            Back to home
+          </button>
+        ) : null}
         {user ? (
           <div className="stack">
             <p>

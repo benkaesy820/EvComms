@@ -24,6 +24,157 @@ select {
   font: inherit;
 }
 
+.homeShell {
+  min-height: 100vh;
+  background: #f4f7f6;
+}
+
+.homeHero {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(360px, 1fr) auto;
+  gap: 24px;
+  min-height: min(760px, 92vh);
+  overflow: hidden;
+  padding: 22px min(5vw, 64px) 28px;
+  color: #ffffff;
+  background:
+    linear-gradient(90deg, rgb(7 20 18 / 0.82), rgb(7 20 18 / 0.54), rgb(7 20 18 / 0.22)),
+    url("https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1800&q=82") center / cover;
+}
+
+.homeNav {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.homeNav strong {
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.homeNavActions,
+.homeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.homeNavButton {
+  color: #ffffff;
+  border-color: rgb(255 255 255 / 0.36);
+  background: rgb(255 255 255 / 0.12);
+}
+
+.homeNavButton:hover {
+  background: rgb(255 255 255 / 0.2);
+}
+
+.homeHeroContent {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 18px;
+  align-content: center;
+  max-width: 720px;
+}
+
+.homeHeroContent h1 {
+  max-width: 720px;
+  color: #ffffff;
+  font-size: clamp(3rem, 8vw, 6.6rem);
+  line-height: 0.94;
+}
+
+.homeHeroContent p:not(.eyebrow) {
+  max-width: 560px;
+  color: #e4eeea;
+  font-size: clamp(1.05rem, 2.5vw, 1.35rem);
+  line-height: 1.45;
+}
+
+.homeHero .eyebrow {
+  color: #7dd3c7;
+}
+
+.homeHero .statusRow {
+  border-color: rgb(255 255 255 / 0.28);
+  background: rgb(255 255 255 / 0.12);
+  color: #ffffff;
+}
+
+.homeServicePanel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  max-width: 980px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.16);
+  backdrop-filter: blur(14px);
+}
+
+.homeServicePanel div {
+  display: grid;
+  gap: 7px;
+  min-height: 92px;
+  align-content: center;
+  padding: 16px;
+  background: rgb(4 15 13 / 0.24);
+}
+
+.homeServicePanel span {
+  color: #b9d7d0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.homeServicePanel strong {
+  color: #ffffff;
+  line-height: 1.35;
+}
+
+.homeBand {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  width: min(1180px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 22px 0 34px;
+}
+
+.homeBand article {
+  display: grid;
+  gap: 8px;
+  min-height: 128px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid #dce5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.homeBand strong {
+  color: #17201d;
+}
+
+.homeBand p {
+  margin: 0;
+  color: #52605c;
+  line-height: 1.5;
+}
+
 .appShell {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -262,6 +413,10 @@ input:disabled {
   color: #115e59;
 }
 
+.backHomeButton {
+  justify-self: start;
+}
+
 .notice {
   border-left: 3px solid #0f766e;
   padding: 8px 10px;
@@ -404,6 +559,15 @@ input:disabled {
 }
 
 @media (max-width: 900px) {
+  .homeHero {
+    min-height: auto;
+  }
+
+  .homeServicePanel,
+  .homeBand {
+    grid-template-columns: 1fr;
+  }
+
   .appShell {
     grid-template-columns: 1fr;
   }
@@ -421,6 +585,31 @@ input:disabled {
 }
 
 @media (max-width: 640px) {
+  .homeHero {
+    padding: 16px 14px 18px;
+  }
+
+  .homeHeroContent h1 {
+    font-size: clamp(2.55rem, 15vw, 4rem);
+  }
+
+  .homeActions,
+  .homeNavActions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .homeNavActions .statusRow {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .homeBand {
+    width: min(100% - 20px, 560px);
+    padding-top: 14px;
+  }
+
   .appShell {
     width: min(100% - 20px, 560px);
     padding-top: 14px;
