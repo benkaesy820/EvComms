@@ -77,15 +77,15 @@ export function AppLayout({
     <main className="grid h-svh overflow-hidden bg-[#eef3ef] text-foreground lg:grid-cols-[236px_minmax(0,1fr)]">
       <aside className="hidden border-r border-border bg-[#f7faf7] lg:grid lg:grid-rows-[auto_1fr_auto]">
         <div className="border-b border-border px-4 py-4">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
               EV
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 {companyName}
               </p>
-              <h1 className="text-base font-semibold leading-tight">{siteName}</h1>
+              <h1 className="truncate text-base font-semibold leading-tight">{siteName}</h1>
             </div>
           </div>
         </div>
