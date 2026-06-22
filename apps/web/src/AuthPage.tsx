@@ -40,9 +40,9 @@ export function AuthPage({
   const isSignup = mode === "signup" && intent === "access";
 
   return (
-    <main className="min-h-svh bg-[radial-gradient(circle_at_top_left,rgba(13,148,136,0.16),transparent_32%),linear-gradient(135deg,#f8fafc,#eef7f3_46%,#f7f4ed)] text-foreground">
-      <div className="mx-auto grid min-h-svh w-full max-w-6xl gap-8 px-4 py-5 md:grid-cols-[minmax(0,0.92fr)_minmax(380px,0.68fr)] md:px-8">
-        <section className="flex min-h-[42vh] flex-col justify-between rounded-lg border border-white/70 bg-white/55 p-5 shadow-sm backdrop-blur md:min-h-0 md:p-7">
+    <main className="min-h-svh bg-[radial-gradient(circle_at_top_left,rgba(13,148,136,0.16),transparent_32%),linear-gradient(135deg,#f8fafc,#eef7f3_46%,#f7f4ed)] text-foreground lg:h-svh lg:overflow-hidden">
+      <div className="mx-auto grid min-h-svh w-full max-w-6xl gap-4 px-4 py-3 md:grid-cols-[minmax(0,0.92fr)_minmax(360px,0.68fr)] md:px-6 lg:h-svh lg:min-h-0 lg:px-8">
+        <section className="flex min-h-[34vh] flex-col justify-between rounded-lg border border-white/70 bg-white/55 p-4 shadow-sm backdrop-blur md:min-h-0 md:p-5">
           <div className="flex items-center justify-between gap-3">
             <button
               type="button"
@@ -57,34 +57,34 @@ export function AuthPage({
 
           <div className="max-w-xl">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">{companyName}</p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-normal text-foreground md:text-6xl">
+            <h1 className="mt-3 text-3xl font-semibold tracking-normal text-foreground md:text-5xl lg:text-4xl xl:text-5xl">
               One account for every support conversation.
             </h1>
-            <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">{tagline}</p>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground md:text-base">{tagline}</p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-3 lg:hidden xl:grid">
             {[
               ["Approval first", "New accounts wait for admin review."],
               ["One thread", "History stays with the customer."],
               ["Private by default", "Only approved users can message."]
             ].map(([title, body]) => (
-              <div key={title} className="rounded-lg border border-border bg-background/80 p-4">
+              <div key={title} className="rounded-lg border border-border bg-background/80 p-3">
                 <strong className="text-sm text-foreground">{title}</strong>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{body}</p>
               </div>
             ))}
           </div>
         </section>
 
         <Card className="self-center border-white/80 bg-white/90 shadow-xl shadow-slate-950/10 backdrop-blur">
-          <CardHeader className="gap-3">
+          <CardHeader className="gap-2 p-4 pb-3 md:p-5 md:pb-3">
             <div className="flex items-center justify-between gap-3">
               <Badge variant="secondary">{siteName}</Badge>
               <ShieldCheck className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-2xl">
+              <CardTitle className="text-xl md:text-2xl">
                 {intent === "forgot"
                   ? "Request a reset"
                   : intent === "reset"
@@ -93,7 +93,7 @@ export function AuthPage({
                       ? "Create your account"
                       : "Log in"}
               </CardTitle>
-              <CardDescription className="mt-2">
+              <CardDescription className="mt-1 text-xs leading-5 md:text-sm">
                 {intent === "access"
                   ? isSignup
                     ? "Apply for customer access. An admin must approve you before chat opens."
@@ -105,18 +105,18 @@ export function AuthPage({
             </div>
           </CardHeader>
 
-          <CardContent className="grid gap-5">
+          <CardContent className="grid gap-3 p-4 pt-0 md:p-5 md:pt-0">
             {intent === "access" ? (
-              <form className="grid gap-4" onSubmit={onSubmit}>
+              <form className="grid gap-3" onSubmit={onSubmit}>
                 {isSignup ? (
-                  <>
+                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-1 xl:grid-cols-2">
                     <Field icon={<UserRound className="h-4 w-4" />} label="Name">
                       <Input name="name" autoComplete="name" required minLength={2} />
                     </Field>
                     <Field label="Ghana phone">
                       <Input name="phone" autoComplete="tel" placeholder="+233501234567" required />
                     </Field>
-                  </>
+                  </div>
                 ) : null}
                 <Field icon={<Mail className="h-4 w-4" />} label="Email">
                   <Input name="email" type="email" autoComplete="email" required />
@@ -161,7 +161,7 @@ export function AuthPage({
               </form>
             ) : null}
 
-            <div className="grid gap-3 text-sm">
+            <div className="grid gap-2 text-sm">
               {message ? (
                 <p className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 font-medium text-primary">
                   {message}
@@ -202,7 +202,7 @@ export function AuthPage({
                   I have a reset token
                 </button>
               </div>
-              {supportEmail ? <p className="text-muted-foreground">Support: {supportEmail}</p> : null}
+              {supportEmail && !isSignup ? <p className="text-muted-foreground">Support: {supportEmail}</p> : null}
             </div>
           </CardContent>
         </Card>
@@ -221,7 +221,7 @@ function Field({
   label: string;
 }) {
   return (
-    <label className="grid gap-2 text-sm font-semibold text-foreground">
+    <label className="grid gap-1.5 text-sm font-semibold text-foreground">
       <span className="inline-flex items-center gap-2">
         {icon}
         {label}
