@@ -516,10 +516,8 @@ export function App() {
         notifications: notificationJobs.length,
         pending: pendingUsers.length
       }}
-      departments={departments}
       health={health}
       siteName={siteName}
-      subsidiaries={subsidiaries}
       user={user}
       onLogout={onLogout}
       onNavigate={setActivePage}

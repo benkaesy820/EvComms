@@ -2,17 +2,14 @@ import type { ComponentType, ReactNode } from "react";
 import type { PublicUser } from "@evbus/shared";
 import {
   Bell,
-  Building2,
   LogOut,
   MessageSquareText,
   Settings,
-  ShieldCheck,
   UserCheck,
   Users
 } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 
 export type AppPage = "conversations" | "approvals" | "agents" | "customers" | "notifications" | "settings";
 
@@ -36,12 +33,10 @@ type AppLayoutProps = {
     notifications: number;
     pending: number;
   };
-  departments: string[];
   health: "checking" | "ok" | "error";
   onNavigate: (page: AppPage) => void;
   onLogout: () => void;
   siteName: string;
-  subsidiaries: string[];
   user: PublicUser;
 };
 
@@ -50,12 +45,10 @@ export function AppLayout({
   children,
   companyName,
   counts,
-  departments,
   health,
   onLogout,
   onNavigate,
   siteName,
-  subsidiaries,
   user
 }: AppLayoutProps) {
   const roleLabel = user.role.replace("_", " ");
@@ -81,94 +74,88 @@ export function AppLayout({
   ];
 
   return (
-    <main className="min-h-svh bg-[#f6f8f5] text-foreground">
-      <header className="sticky top-0 z-30 border-b border-border bg-white/90 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-6">
+    <main className="grid h-svh overflow-hidden bg-[#eef3ef] text-foreground lg:grid-cols-[236px_minmax(0,1fr)]">
+      <aside className="hidden border-r border-border bg-[#f7faf7] lg:grid lg:grid-rows-[auto_1fr_auto]">
+        <div className="border-b border-border px-4 py-4">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+            <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
               EV
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{companyName}</p>
-              <h1 className="text-lg font-semibold leading-tight">{siteName} Workspace</h1>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                {companyName}
+              </p>
+              <h1 className="text-base font-semibold leading-tight">{siteName}</h1>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+        </div>
+
+        <nav className="grid content-start gap-1 px-3 py-3" aria-label="Workspace">
+          {navItems
+            .filter((item) => item.roles.includes(user.role))
+            .map(({ count, icon: Icon, id, label }) => (
+              <button
+                type="button"
+                className="flex h-10 items-center justify-between rounded-md px-3 text-sm font-semibold transition data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=false]:text-muted-foreground data-[active=false]:hover:bg-white data-[active=false]:hover:text-foreground"
+                data-active={activePage === id}
+                key={id}
+                onClick={() => onNavigate(id)}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </span>
+                {typeof count === "number" ? (
+                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px]">{count}</span>
+                ) : null}
+              </button>
+            ))}
+        </nav>
+
+        <div className="border-t border-border p-3">
+          <div className="mb-3 min-w-0">
+            <p className="truncate text-sm font-semibold">{user.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          </div>
+          <div className="flex items-center gap-2">
             <HealthBadge health={health} />
             <Badge variant="outline" className="capitalize">{roleLabel}</Badge>
-            <Button type="button" variant="outline" size="sm" onClick={onLogout}>
-              <LogOut className="h-4 w-4" />
-              Log out
-            </Button>
           </div>
+          <Button type="button" variant="outline" size="sm" className="mt-3 w-full" onClick={onLogout}>
+            <LogOut className="h-4 w-4" />
+            Log out
+          </Button>
         </div>
-      </header>
+      </aside>
 
-      <div className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-4 md:px-6 lg:grid-cols-[220px_minmax(0,1fr)_300px]">
-        <aside className="hidden lg:block">
-          <nav className="sticky top-[76px] grid gap-2" aria-label="Workspace">
-            {navItems
-              .filter((item) => item.roles.includes(user.role))
-              .map(({ count, icon: Icon, id, label }) => (
-                <button
-                  type="button"
-                  className="flex items-center justify-between rounded-md border px-3 py-2 text-sm font-semibold transition data-[active=true]:border-primary data-[active=true]:bg-primary/10 data-[active=false]:border-transparent data-[active=false]:text-muted-foreground data-[active=false]:hover:border-border data-[active=false]:hover:bg-white data-[active=false]:hover:text-foreground"
-                  data-active={activePage === id}
-                  key={id}
-                  onClick={() => onNavigate(id)}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </span>
-                  {typeof count === "number" ? <span className="text-xs">{count}</span> : null}
-                </button>
-              ))}
-          </nav>
-        </aside>
+      <section className="grid min-h-0 grid-rows-[52px_minmax(0,1fr)]">
+        <header className="flex items-center justify-between gap-3 border-b border-border bg-white px-4">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{activeTitle(activePage)}</p>
+            <p className="truncate text-xs text-muted-foreground">{siteName} support operations</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <HealthBadge health={health} />
+            <Badge variant="outline" className="hidden capitalize sm:inline-flex">{roleLabel}</Badge>
+          </div>
+        </header>
 
-        <div className="min-w-0">{children}</div>
-
-        <aside className="grid gap-4 self-start lg:sticky lg:top-[76px]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-                Session
-              </CardTitle>
-              <CardDescription>{user.email}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <div>
-                <p className="font-semibold">{user.name}</p>
-                <Badge className="mt-2 capitalize" variant={user.status === "approved" ? "success" : "warning"}>
-                  {user.status}
-                </Badge>
-              </div>
-              <Button type="button" variant="outline" onClick={onLogout}>
-                <LogOut className="h-4 w-4" />
-                Log out
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-primary" />
-                Routing Context
-              </CardTitle>
-              <CardDescription>Configured labels for the next routing pass.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <LabelStack label="Subsidiaries" values={subsidiaries} />
-              <LabelStack label="Departments" values={departments} />
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
+        <div className="min-h-0 min-w-0 overflow-hidden p-2 md:p-3">{children}</div>
+      </section>
     </main>
   );
+}
+
+function activeTitle(page: AppPage) {
+  const labels: Record<AppPage, string> = {
+    approvals: "Approvals",
+    agents: "Agents",
+    conversations: "Conversations",
+    customers: "Customers",
+    notifications: "Notifications",
+    settings: "Settings"
+  };
+  return labels[page];
 }
 
 function HealthBadge({ health }: { health: AppLayoutProps["health"] }) {
@@ -176,20 +163,5 @@ function HealthBadge({ health }: { health: AppLayoutProps["health"] }) {
     <Badge variant={health === "ok" ? "success" : health === "checking" ? "secondary" : "warning"}>
       {health === "ok" ? "Live" : health === "checking" ? "Checking" : "Offline"}
     </Badge>
-  );
-}
-
-function LabelStack({ label, values }: { label: string; values: string[] }) {
-  return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
-      <div className="flex flex-wrap gap-2">
-        {values.map((value) => (
-          <Badge variant="outline" key={value}>
-            {value}
-          </Badge>
-        ))}
-      </div>
-    </div>
   );
 }
