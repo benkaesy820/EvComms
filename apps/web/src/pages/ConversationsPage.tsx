@@ -105,9 +105,9 @@ export function ConversationsPage({
 
           <div className="shrink-0 border-t border-border bg-[#f7f3ed] p-2">
             {selectedConversation ? (
-              <div className="mb-2 grid gap-2">
+              <div className="mb-2 grid gap-2 lg:grid-cols-[minmax(220px,0.7fr)_minmax(260px,1fr)]">
                 {isClosed ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800 lg:col-span-2">
                     <span>This conversation is closed.</span>
                     <Button type="button" variant="outline" size="sm" onClick={onReopenConversation}>
                       Reopen
@@ -116,10 +116,10 @@ export function ConversationsPage({
                 ) : null}
 
                 {canReassign ? (
-                  <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onReassign}>
+                  <form className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onReassign}>
                     <select
                       name="agentId"
-                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                       defaultValue={selectedConversation.assignedAgentId ?? ""}
                       aria-label="Assigned agent"
                     >
@@ -135,7 +135,7 @@ export function ConversationsPage({
                 ) : null}
 
                 {canClose ? (
-                  <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onCloseConversation}>
+                  <form className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onCloseConversation}>
                     <Input name="note" className="h-9" placeholder="Closing note" required maxLength={1000} />
                     <Button type="submit" size="sm">Close</Button>
                   </form>
@@ -200,13 +200,25 @@ function ChatHeader({
 function MessageBubble({ isOwn, item }: { isOwn: boolean; item: Message }) {
   return (
     <article
-      className="grid w-[min(78%,620px)] gap-0.5 rounded-lg px-3 py-2 text-sm shadow-sm data-[own=false]:bg-white data-[own=true]:justify-self-end data-[own=true]:bg-[#d9fdd3]"
+      className="grid w-[min(78%,620px)] gap-1 rounded-lg px-3 py-2 text-sm shadow-sm data-[own=false]:bg-white data-[own=true]:justify-self-end data-[own=true]:bg-[#d9fdd3]"
       data-own={isOwn}
     >
-      <strong className="text-[11px] text-muted-foreground">{item.senderName}</strong>
-      <p className="leading-6">{item.body}</p>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <strong className="truncate text-[11px] text-muted-foreground">{item.senderName}</strong>
+        <time className="shrink-0 text-[11px] text-muted-foreground" dateTime={item.createdAt}>
+          {formatMessageTime(item.createdAt)}
+        </time>
+      </div>
+      <p className="whitespace-pre-wrap leading-6 [overflow-wrap:anywhere]">{item.body}</p>
     </article>
   );
+}
+
+function formatMessageTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function StatusDot({ status }: { status: ConversationSummary["status"] }) {

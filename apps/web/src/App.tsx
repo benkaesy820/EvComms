@@ -6,7 +6,7 @@ import {
   type NotificationJob,
   type PublicUser
 } from "@evbus/shared";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   approveUser,
   closeConversation,
@@ -73,9 +73,11 @@ export function App() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messageCache, setMessageCache] = useState<Record<string, Message[]>>({});
   const [message, setMessage] = useState("");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [activePage, setActivePage] = useState<AppPage>("conversations");
+  const selectedConversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,10 +113,15 @@ export function App() {
   }, [user?.role]);
 
   useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     setConversation(null);
     setConversations([]);
     setSelectedConversationId(null);
     setMessages([]);
+    setMessageCache({});
 
     if (user?.role === "customer" && user.status === "approved") {
       void loadCustomerConversation();
@@ -132,7 +139,11 @@ export function App() {
   }, [activePage, user?.role]);
 
   useEffect(() => {
-    if (!selectedConversationId) return;
+    if (!selectedConversationId) {
+      setMessages([]);
+      return;
+    }
+    setMessages(messageCache[selectedConversationId] ?? []);
     void loadMessages(selectedConversationId);
   }, [selectedConversationId]);
 
@@ -145,6 +156,11 @@ export function App() {
       setMessages((current) => {
         if (current.some((item) => item.id === event.message.id)) return current;
         return [...current, event.message];
+      });
+      setMessageCache((current) => {
+        const cachedMessages = current[selectedConversationId] ?? [];
+        if (cachedMessages.some((item) => item.id === event.message.id)) return current;
+        return { ...current, [selectedConversationId]: [...cachedMessages, event.message] };
       });
 
       if (user.role === "super_admin") {
@@ -200,11 +216,12 @@ export function App() {
 
   async function onRequestPasswordReset(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     try {
       await requestPasswordReset({ email: String(form.get("email") ?? "") });
-      event.currentTarget.reset();
+      formElement.reset();
       setMessage("If that account exists, a reset email is on its way.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not request reset.");
@@ -213,14 +230,15 @@ export function App() {
 
   async function onResetPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     try {
       await resetPassword({
         token: String(form.get("token") ?? ""),
         password: String(form.get("password") ?? "")
       });
-      event.currentTarget.reset();
+      formElement.reset();
       setMessage("Password reset. You can log in now.");
       setMode("login");
     } catch (error) {
@@ -274,7 +292,9 @@ export function App() {
 
   async function loadMessages(conversationId: string) {
     try {
-      setMessages(await getMessages(conversationId));
+      const nextMessages = await getMessages(conversationId);
+      setMessageCache((current) => ({ ...current, [conversationId]: nextMessages }));
+      if (selectedConversationIdRef.current === conversationId) setMessages(nextMessages);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load messages.");
     }
@@ -284,16 +304,26 @@ export function App() {
     event.preventDefault();
     if (!selectedConversationId) return;
 
-    const form = new FormData(event.currentTarget);
+    const conversationId = selectedConversationId;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const body = String(form.get("body") ?? "");
 
     try {
-      const sentMessage = await sendMessage(selectedConversationId, { body });
-      setMessages((current) => {
-        if (current.some((item) => item.id === sentMessage.id)) return current;
-        return [...current, sentMessage];
+      setMessage("");
+      const sentMessage = await sendMessage(conversationId, { body });
+      setMessageCache((current) => {
+        const cachedMessages = current[conversationId] ?? [];
+        if (cachedMessages.some((item) => item.id === sentMessage.id)) return current;
+        return { ...current, [conversationId]: [...cachedMessages, sentMessage] };
       });
-      event.currentTarget.reset();
+      if (selectedConversationIdRef.current === conversationId) {
+        setMessages((current) => {
+          if (current.some((item) => item.id === sentMessage.id)) return current;
+          return [...current, sentMessage];
+        });
+      }
+      formElement.reset();
       if (user?.role === "super_admin" || user?.role === "agent") await loadAdminConversations();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not send message.");
@@ -330,12 +360,13 @@ export function App() {
     event.preventDefault();
     if (!selectedConversationId) return;
 
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const note = String(form.get("note") ?? "");
 
     try {
       await closeConversation(selectedConversationId, { note });
-      event.currentTarget.reset();
+      formElement.reset();
       setMessage("Conversation closed.");
       await refreshConversationState(selectedConversationId);
     } catch (error) {
@@ -385,7 +416,8 @@ export function App() {
 
   async function onCreateAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     try {
       await createAgent({
@@ -394,7 +426,7 @@ export function App() {
         phone: String(form.get("phone") ?? "") || undefined,
         password: String(form.get("password") ?? "")
       });
-      event.currentTarget.reset();
+      formElement.reset();
       setMessage("Agent created.");
       await loadAgents();
     } catch (error) {
@@ -522,7 +554,13 @@ export function App() {
       onLogout={onLogout}
       onNavigate={setActivePage}
     >
-      <div className="grid h-full min-h-0 gap-4">
+      <div
+        className={
+          message
+            ? "grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2"
+            : "grid h-full min-h-0 grid-rows-[minmax(0,1fr)]"
+        }
+      >
         {message ? (
           <p className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
             {message}

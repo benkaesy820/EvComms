@@ -96,35 +96,31 @@ export function AppLayout({
             .map(({ count, icon: Icon, id, label }) => (
               <button
                 type="button"
-                className="flex h-9 items-center justify-between rounded-md px-3 text-sm font-semibold transition data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=false]:text-muted-foreground data-[active=false]:hover:bg-white data-[active=false]:hover:text-foreground"
+                className="flex h-9 w-full min-w-0 items-center justify-between rounded-md px-3 text-sm font-semibold transition data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=false]:text-muted-foreground data-[active=false]:hover:bg-white data-[active=false]:hover:text-foreground"
                 data-active={activePage === id}
                 key={id}
                 onClick={() => onNavigate(id)}
               >
-                <span className="inline-flex items-center gap-2">
-                  <Icon className="h-4 w-4" />
-                  {label}
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{label}</span>
                 </span>
                 {typeof count === "number" ? (
-                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px]">{count}</span>
+                  <span className="shrink-0 rounded-full bg-black/5 px-2 py-0.5 text-[11px]">{count}</span>
                 ) : null}
               </button>
             ))}
         </nav>
 
-        <div className="border-t border-border p-2.5">
-          <div className="mb-2 min-w-0">
+        <div className="min-w-0 border-t border-border p-2.5">
+          <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{user.name}</p>
             <p className="truncate text-xs text-muted-foreground">{user.email}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
             <HealthBadge health={health} />
             <Badge variant="outline" className="capitalize">{roleLabel}</Badge>
           </div>
-          <Button type="button" variant="outline" size="sm" className="mt-2 w-full justify-center" onClick={onLogout}>
-            <LogOut className="h-4 w-4" />
-            Log out
-          </Button>
         </div>
       </aside>
 
@@ -137,6 +133,10 @@ export function AppLayout({
           <div className="flex items-center gap-2">
             <HealthBadge health={health} />
             <Badge variant="outline" className="hidden capitalize sm:inline-flex">{roleLabel}</Badge>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-3" onClick={onLogout}>
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Log out</span>
+            </Button>
           </div>
         </header>
 
