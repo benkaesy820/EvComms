@@ -1,6 +1,22 @@
 @import "tailwindcss";
 
 :root {
+  --background: 48 38% 97%;
+  --foreground: 170 18% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 170 18% 12%;
+  --primary: 174 76% 28%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 160 18% 90%;
+  --secondary-foreground: 170 18% 14%;
+  --muted: 150 18% 92%;
+  --muted-foreground: 165 9% 40%;
+  --accent: 42 65% 88%;
+  --accent-foreground: 170 18% 14%;
+  --destructive: 0 72% 45%;
+  --border: 160 14% 84%;
+  --input: 160 14% 78%;
+  --ring: 174 76% 34%;
   color: #1b2522;
   background: #f4f7f6;
   font-family:
@@ -8,6 +24,25 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
 }
 
 * {
@@ -395,7 +430,7 @@ h2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-label {
+.appShell label {
   display: grid;
   gap: 6px;
   color: #33423d;
@@ -403,8 +438,8 @@ label {
   font-weight: 750;
 }
 
-input,
-select {
+.appShell input,
+.appShell select {
   width: 100%;
   min-height: 42px;
   border: 1px solid #cbd8d2;
@@ -414,14 +449,14 @@ select {
   color: #17201d;
 }
 
-input:focus,
-select:focus,
-button:focus-visible {
+.appShell input:focus,
+.appShell select:focus,
+.appShell button:focus-visible {
   outline: 3px solid #b6e7de;
   outline-offset: 2px;
 }
 
-button {
+.appShell button {
   width: fit-content;
   min-height: 40px;
   border: 0;
@@ -433,12 +468,12 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+.appShell button:hover {
   background: #115e59;
 }
 
-button:disabled,
-input:disabled {
+.appShell button:disabled,
+.appShell input:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -693,7 +728,7 @@ input:disabled {
     flex-direction: column;
   }
 
-  button {
+  .appShell button {
     width: 100%;
   }
 

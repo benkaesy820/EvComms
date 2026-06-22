@@ -35,6 +35,8 @@ import {
   suspendUser,
   updateSettings
 } from "./api";
+import { AuthPage } from "./AuthPage";
+import { LandingPage } from "./LandingPage";
 
 type HealthState = "checking" | "ok" | "error";
 type Mode = "login" | "signup";
@@ -436,107 +438,52 @@ export function App() {
   const siteName = settings?.siteName ?? appConfig.siteName;
   const companyName = settings?.companyName ?? appConfig.companyName;
   const tagline = settings?.tagline ?? appConfig.tagline;
+  const supportEmail = settings?.supportEmail;
   const subsidiaries = settings?.subsidiaries.length ? settings.subsidiaries : defaultSubsidiaries;
   const departments = settings?.departments.length ? settings.departments : defaultDepartments;
 
   if (!user && publicView === "home") {
     return (
-      <main className="homeShell min-h-screen">
-        <section className="homeHero" aria-labelledby="home-title">
-          <nav className="homeNav" aria-label="Primary">
-            <strong>{companyName}</strong>
-            <div className="homeNavActions">
-              <span className="statusRow" data-state={health}>
-                <span className="statusDot" />
-                <span>{health === "ok" ? "Live" : health === "checking" ? "Checking" : "Offline"}</span>
-              </span>
-              <button
-                type="button"
-                className="secondaryButton homeNavButton"
-                onClick={() => {
-                  setMode("login");
-                  setPublicView("auth");
-                }}
-              >
-                Log in
-              </button>
-            </div>
-          </nav>
+      <LandingPage
+        companyName={companyName}
+        departments={departments}
+        health={health}
+        siteName={siteName}
+        subsidiaries={subsidiaries}
+        tagline={tagline}
+        onLogin={() => {
+          setMode("login");
+          setPublicView("auth");
+        }}
+        onSignup={() => {
+          setMode("signup");
+          setPublicView("auth");
+        }}
+      />
+    );
+  }
 
-          <div className="homeHeroContent">
-            <p className="eyebrow">{companyName}</p>
-            <h1 id="home-title">{siteName}</h1>
-            <p>{tagline}</p>
-            <div className="homeActions">
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("signup");
-                  setPublicView("auth");
-                }}
-              >
-                Start Support
-              </button>
-              <button
-                type="button"
-                className="secondaryButton"
-                onClick={() => {
-                  setMode("login");
-                  setPublicView("auth");
-                }}
-              >
-                Existing Account
-              </button>
-            </div>
-          </div>
-
-          <aside className="homeConversation" aria-label="Support preview">
-            <div className="homeConversationHeader">
-              <span>Ev Bus Support</span>
-              <strong>Online desk</strong>
-            </div>
-            <div className="chatPreviewBubble">
-              Hello, tell us what happened and the right team will pick this up.
-            </div>
-            <div className="chatPreviewBubble" data-customer="true">
-              I need help with my booking from Accra.
-            </div>
-            <div className="chatPreviewMeta">
-              Routed to {departments[0]} - {subsidiaries[0]}
-            </div>
-          </aside>
-
-          <div className="homeServicePanel" aria-label="Support service summary">
-            <div>
-              <span>Coverage</span>
-              <strong>{subsidiaries.slice(0, 2).join(" / ")}</strong>
-            </div>
-            <div>
-              <span>Departments</span>
-              <strong>{departments.slice(0, 3).join(", ")}</strong>
-            </div>
-            <div>
-              <span>Channel</span>
-              <strong>One clear support conversation</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="homeBand" aria-label="What customers can expect">
-          <article>
-            <strong>Request help</strong>
-            <p>Create an account and send a support message once approved.</p>
-          </article>
-          <article>
-            <strong>Stay in one thread</strong>
-            <p>Your replies, updates, and closure notes stay together.</p>
-          </article>
-          <article>
-            <strong>Handled by the right team</strong>
-            <p>Support can route by branch or department as your team grows.</p>
-          </article>
-        </section>
-      </main>
+  if (!user) {
+    return (
+      <AuthPage
+        companyName={companyName}
+        message={message}
+        mode={mode}
+        siteName={siteName}
+        supportEmail={supportEmail}
+        tagline={tagline}
+        onBackHome={() => {
+          setPublicView("home");
+          setMessage("");
+        }}
+        onModeChange={(nextMode) => {
+          setMode(nextMode);
+          setMessage("");
+        }}
+        onRequestPasswordReset={onRequestPasswordReset}
+        onResetPassword={onResetPassword}
+        onSubmit={onSubmit}
+      />
     );
   }
 
@@ -559,11 +506,6 @@ export function App() {
           <h2 id="next-title">{user ? "Session" : mode === "signup" ? "Create Account" : "Log In"}</h2>
           <span className="pill">{roleLabel}</span>
         </div>
-        {!user ? (
-          <button type="button" className="textButton backHomeButton" onClick={() => setPublicView("home")}>
-            Back to home
-          </button>
-        ) : null}
         {user ? (
           <div className="stack">
             <p>
@@ -575,47 +517,7 @@ export function App() {
               Log out
             </button>
           </div>
-        ) : (
-          <form className="stack" onSubmit={onSubmit}>
-            {mode === "signup" ? (
-              <>
-                <label>
-                  Name
-                  <input name="name" autoComplete="name" required minLength={2} />
-                </label>
-                <label>
-                  Ghana phone
-                  <input name="phone" autoComplete="tel" placeholder="+233501234567" required />
-                </label>
-              </>
-            ) : null}
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" required />
-            </label>
-            <label>
-              Password
-              <input
-                name="password"
-                type="password"
-                autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                required
-                minLength={mode === "signup" ? 12 : 1}
-              />
-            </label>
-            <button type="submit">{mode === "signup" ? "Sign up" : "Log in"}</button>
-            <button
-              type="button"
-              className="textButton"
-              onClick={() => {
-                setMode(mode === "signup" ? "login" : "signup");
-                setMessage("");
-              }}
-            >
-              {mode === "signup" ? "Use existing account" : "Create an account"}
-            </button>
-          </form>
-        )}
+        ) : null}
         {message ? <p className="notice">{message}</p> : null}
       </section>
 
@@ -637,32 +539,6 @@ export function App() {
             <strong>{notificationJobs.length}</strong>
             <span>Jobs</span>
           </div>
-        </section>
-      ) : null}
-
-      {!user && mode === "login" ? (
-        <section className="panel" aria-labelledby="reset-title">
-          <h2 id="reset-title">Password Reset</h2>
-          <form className="stack" onSubmit={onRequestPasswordReset}>
-            <label>
-              Email
-              <input name="email" type="email" autoComplete="email" required />
-            </label>
-            <button type="submit" className="secondaryButton">
-              Send Reset Email
-            </button>
-          </form>
-          <form className="stack compactForm" onSubmit={onResetPassword}>
-            <label>
-              Reset token
-              <input name="token" required />
-            </label>
-            <label>
-              New password
-              <input name="password" type="password" required minLength={12} />
-            </label>
-            <button type="submit">Reset Password</button>
-          </form>
         </section>
       ) : null}
 
