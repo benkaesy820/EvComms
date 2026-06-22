@@ -522,7 +522,7 @@ export function App() {
       onLogout={onLogout}
       onNavigate={setActivePage}
     >
-      <div className="grid gap-4">
+      <div className="grid h-full min-h-0 gap-4">
         {message ? (
           <p className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
             {message}

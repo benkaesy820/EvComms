@@ -40,12 +40,12 @@ export function ConversationsPage({
   const isClosed = selectedConversation?.status === "closed";
 
   return (
-    <div className="grid h-full min-h-0 overflow-hidden rounded-lg border border-border bg-white shadow-sm xl:grid-cols-[340px_minmax(0,1fr)]">
+    <div className="grid h-full min-h-0 overflow-hidden rounded-md border border-border bg-white shadow-sm xl:grid-cols-[320px_minmax(0,1fr)]">
         {showInbox ? (
           <aside className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] border-b border-border bg-[#f7faf7] xl:border-b-0 xl:border-r">
-            <div className="flex h-14 items-center justify-between border-b border-border px-3">
+            <div className="flex h-12 items-center justify-between border-b border-border px-3">
               <div>
-                <h2 className="text-base font-semibold">Chats</h2>
+                <h2 className="text-sm font-semibold">Chats</h2>
                 <p className="text-xs text-muted-foreground">{conversations.length} conversations</p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={onRefresh} aria-label="Refresh conversations">
@@ -54,7 +54,7 @@ export function ConversationsPage({
             </div>
 
             <div className="border-b border-border p-2">
-              <div className="flex h-9 items-center gap-2 rounded-md bg-[#eef3ef] px-3 text-sm text-muted-foreground">
+              <div className="flex h-8 items-center gap-2 rounded-md bg-[#eef3ef] px-3 text-sm text-muted-foreground">
                 <Search className="h-4 w-4" />
                 <span>Search customers</span>
               </div>
@@ -69,7 +69,7 @@ export function ConversationsPage({
                 conversations.map((item) => (
                   <button
                     type="button"
-                    className="grid w-full gap-1 border-b border-border/70 px-4 py-3 text-left text-sm transition data-[active=true]:bg-[#e5f3ef] data-[active=false]:hover:bg-white"
+                    className="grid w-full gap-0.5 border-b border-border/70 px-3 py-2.5 text-left text-sm transition data-[active=true]:bg-[#e5f3ef] data-[active=false]:hover:bg-white"
                     data-active={item.id === selectedConversationId}
                     key={item.id}
                     onClick={() => onSelectConversation(item.id)}
@@ -88,10 +88,10 @@ export function ConversationsPage({
           </aside>
         ) : null}
 
-        <section className="grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)_auto] bg-[#efeae2]">
+        <section className="grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] bg-[#efeae2]">
           <ChatHeader conversation={selectedConversation} isCustomer={user.role === "customer"} />
 
-          <div className="grid min-h-0 content-start gap-2 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.36),transparent_26%)] p-3 md:p-4">
+          <div className="grid min-h-0 content-start gap-1.5 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.38),transparent_26%)] p-3">
             {messages.length === 0 ? (
               <p className="self-center justify-self-center rounded-full bg-white/70 px-4 py-2 text-sm text-muted-foreground">
                 No messages yet.
@@ -103,7 +103,7 @@ export function ConversationsPage({
             )}
           </div>
 
-          <div className="border-t border-border bg-[#f7f3ed] p-2">
+          <div className="shrink-0 border-t border-border bg-[#f7f3ed] p-2">
             {selectedConversation ? (
               <div className="mb-2 grid gap-2">
                 {isClosed ? (
@@ -119,7 +119,7 @@ export function ConversationsPage({
                   <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onReassign}>
                     <select
                       name="agentId"
-                      className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                       defaultValue={selectedConversation.assignedAgentId ?? ""}
                       aria-label="Assigned agent"
                     >
@@ -130,14 +130,14 @@ export function ConversationsPage({
                         </option>
                       ))}
                     </select>
-                    <Button type="submit" variant="outline">Reassign</Button>
+                    <Button type="submit" variant="outline" size="sm">Reassign</Button>
                   </form>
                 ) : null}
 
                 {canClose ? (
                   <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onCloseConversation}>
-                    <Input name="note" placeholder="Closing note" required maxLength={1000} />
-                    <Button type="submit">Close</Button>
+                    <Input name="note" className="h-9" placeholder="Closing note" required maxLength={1000} />
+                    <Button type="submit" size="sm">Close</Button>
                   </form>
                 ) : null}
               </div>
@@ -146,13 +146,13 @@ export function ConversationsPage({
             <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onSendMessage}>
               <Input
                 name="body"
-                className="h-11 rounded-full bg-white px-4"
+                className="h-10 rounded-full bg-white px-4"
                 placeholder={isClosed ? "Reopen this conversation before sending" : "Type a message"}
                 required
                 maxLength={5000}
                 disabled={isClosed}
               />
-              <Button type="submit" className="h-11 rounded-full px-5" disabled={isClosed}>
+              <Button type="submit" className="h-10 rounded-full px-5" disabled={isClosed}>
                 <Send className="h-4 w-4" />
                 Send
               </Button>
@@ -178,9 +178,9 @@ function ChatHeader({
         : "Select a conversation";
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border bg-[#f7f3ed] px-4">
+    <div className="flex items-center justify-between gap-3 border-b border-border bg-[#f7f3ed] px-3">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
           {title.slice(0, 1).toUpperCase()}
         </div>
         <div className="min-w-0">
@@ -200,7 +200,7 @@ function ChatHeader({
 function MessageBubble({ isOwn, item }: { isOwn: boolean; item: Message }) {
   return (
     <article
-      className="grid w-[min(86%,640px)] gap-1 rounded-md px-3 py-2 text-sm shadow-sm data-[own=false]:bg-white data-[own=true]:justify-self-end data-[own=true]:bg-[#d9fdd3]"
+      className="grid w-[min(78%,620px)] gap-0.5 rounded-lg px-3 py-2 text-sm shadow-sm data-[own=false]:bg-white data-[own=true]:justify-self-end data-[own=true]:bg-[#d9fdd3]"
       data-own={isOwn}
     >
       <strong className="text-[11px] text-muted-foreground">{item.senderName}</strong>

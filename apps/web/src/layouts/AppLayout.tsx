@@ -74,18 +74,18 @@ export function AppLayout({
   ];
 
   return (
-    <main className="grid h-svh overflow-hidden bg-[#eef3ef] text-foreground lg:grid-cols-[236px_minmax(0,1fr)]">
+    <main className="grid h-svh overflow-hidden bg-[#eef3ef] text-foreground lg:grid-cols-[220px_minmax(0,1fr)]">
       <aside className="hidden border-r border-border bg-[#f7faf7] lg:grid lg:grid-rows-[auto_1fr_auto]">
-        <div className="border-b border-border px-4 py-4">
+        <div className="border-b border-border px-3 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
               EV
             </div>
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 {companyName}
               </p>
-              <h1 className="truncate text-base font-semibold leading-tight">{siteName}</h1>
+              <h1 className="truncate text-sm font-semibold leading-tight">{siteName}</h1>
             </div>
           </div>
         </div>
@@ -96,7 +96,7 @@ export function AppLayout({
             .map(({ count, icon: Icon, id, label }) => (
               <button
                 type="button"
-                className="flex h-10 items-center justify-between rounded-md px-3 text-sm font-semibold transition data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=false]:text-muted-foreground data-[active=false]:hover:bg-white data-[active=false]:hover:text-foreground"
+                className="flex h-9 items-center justify-between rounded-md px-3 text-sm font-semibold transition data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=false]:text-muted-foreground data-[active=false]:hover:bg-white data-[active=false]:hover:text-foreground"
                 data-active={activePage === id}
                 key={id}
                 onClick={() => onNavigate(id)}
@@ -112,16 +112,16 @@ export function AppLayout({
             ))}
         </nav>
 
-        <div className="border-t border-border p-3">
-          <div className="mb-3 min-w-0">
+        <div className="border-t border-border p-2.5">
+          <div className="mb-2 min-w-0">
             <p className="truncate text-sm font-semibold">{user.name}</p>
             <p className="truncate text-xs text-muted-foreground">{user.email}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <HealthBadge health={health} />
             <Badge variant="outline" className="capitalize">{roleLabel}</Badge>
           </div>
-          <Button type="button" variant="outline" size="sm" className="mt-3 w-full" onClick={onLogout}>
+          <Button type="button" variant="outline" size="sm" className="mt-2 w-full justify-center" onClick={onLogout}>
             <LogOut className="h-4 w-4" />
             Log out
           </Button>
@@ -140,7 +140,7 @@ export function AppLayout({
           </div>
         </header>
 
-        <div className="min-h-0 min-w-0 overflow-hidden p-2 md:p-3">{children}</div>
+        <div className="min-h-0 min-w-0 overflow-hidden p-1.5 md:p-2">{children}</div>
       </section>
     </main>
   );
