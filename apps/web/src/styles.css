@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   color: #1b2522;
   background: #f4f7f6;
@@ -32,6 +34,7 @@ select {
 .homeHero {
   position: relative;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
   grid-template-rows: auto minmax(360px, 1fr) auto;
   gap: 24px;
   min-height: min(760px, 92vh);
@@ -46,6 +49,7 @@ select {
 .homeNav {
   position: relative;
   z-index: 1;
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -110,9 +114,65 @@ select {
   color: #ffffff;
 }
 
+.homeConversation {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  align-self: center;
+  padding: 16px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 8px;
+  background: rgb(3 12 11 / 0.52);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.22);
+  backdrop-filter: blur(18px);
+}
+
+.homeConversationHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.14);
+}
+
+.homeConversationHeader span,
+.chatPreviewMeta {
+  color: #bad7d0;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.homeConversationHeader strong {
+  color: #9ef1d4;
+  font-size: 0.86rem;
+}
+
+.chatPreviewBubble {
+  width: min(86%, 320px);
+  padding: 12px 13px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.12);
+  color: #ffffff;
+  line-height: 1.45;
+}
+
+.chatPreviewBubble[data-customer="true"] {
+  justify-self: end;
+  border-color: rgb(125 211 199 / 0.34);
+  background: rgb(15 118 110 / 0.72);
+}
+
+.chatPreviewMeta {
+  overflow-wrap: anywhere;
+}
+
 .homeServicePanel {
   position: relative;
   z-index: 1;
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
@@ -560,7 +620,12 @@ input:disabled {
 
 @media (max-width: 900px) {
   .homeHero {
+    grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  .homeConversation {
+    max-width: 520px;
   }
 
   .homeServicePanel,

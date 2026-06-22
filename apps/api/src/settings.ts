@@ -19,6 +19,8 @@ export const defaultSettings = appSettingsSchema.parse({
   companyName: appConfig.companyName,
   tagline: appConfig.tagline,
   supportEmail: "ev@gmail.com",
+  subsidiaries: ["Accra Office", "Kumasi Office"],
+  departments: ["General Support", "Billing", "Technical Support"],
   maxActiveConversationsPerAgent: 20,
   emailNotificationDebounceMinutes: 5
 });

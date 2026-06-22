@@ -41,6 +41,16 @@ type Mode = "login" | "signup";
 type PublicView = "home" | "auth";
 type AppSettings = Awaited<ReturnType<typeof getSettings>>;
 
+const defaultSubsidiaries = ["Accra Office", "Kumasi Office"];
+const defaultDepartments = ["General Support", "Billing", "Technical Support"];
+
+function splitList(value: FormDataEntryValue | null) {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function App() {
   const [health, setHealth] = useState<HealthState>("checking");
   const [mode, setMode] = useState<Mode>("signup");
@@ -406,6 +416,8 @@ export function App() {
         companyName: String(form.get("companyName") ?? ""),
         tagline: String(form.get("tagline") ?? ""),
         supportEmail: String(form.get("supportEmail") ?? ""),
+        subsidiaries: splitList(form.get("subsidiaries")),
+        departments: splitList(form.get("departments")),
         maxActiveConversationsPerAgent: Number(form.get("maxActiveConversationsPerAgent")),
         emailNotificationDebounceMinutes: Number(form.get("emailNotificationDebounceMinutes"))
       });
@@ -424,10 +436,12 @@ export function App() {
   const siteName = settings?.siteName ?? appConfig.siteName;
   const companyName = settings?.companyName ?? appConfig.companyName;
   const tagline = settings?.tagline ?? appConfig.tagline;
+  const subsidiaries = settings?.subsidiaries.length ? settings.subsidiaries : defaultSubsidiaries;
+  const departments = settings?.departments.length ? settings.departments : defaultDepartments;
 
   if (!user && publicView === "home") {
     return (
-      <main className="homeShell">
+      <main className="homeShell min-h-screen">
         <section className="homeHero" aria-labelledby="home-title">
           <nav className="homeNav" aria-label="Primary">
             <strong>{companyName}</strong>
@@ -476,18 +490,34 @@ export function App() {
             </div>
           </div>
 
+          <aside className="homeConversation" aria-label="Support preview">
+            <div className="homeConversationHeader">
+              <span>Ev Bus Support</span>
+              <strong>Online desk</strong>
+            </div>
+            <div className="chatPreviewBubble">
+              Hello, tell us what happened and the right team will pick this up.
+            </div>
+            <div className="chatPreviewBubble" data-customer="true">
+              I need help with my booking from Accra.
+            </div>
+            <div className="chatPreviewMeta">
+              Routed to {departments[0]} - {subsidiaries[0]}
+            </div>
+          </aside>
+
           <div className="homeServicePanel" aria-label="Support service summary">
             <div>
-              <span>Response flow</span>
-              <strong>Customer to agent to resolution</strong>
+              <span>Coverage</span>
+              <strong>{subsidiaries.slice(0, 2).join(" / ")}</strong>
             </div>
             <div>
-              <span>Account control</span>
-              <strong>Approval required before messaging</strong>
+              <span>Departments</span>
+              <strong>{departments.slice(0, 3).join(", ")}</strong>
             </div>
             <div>
-              <span>Support channel</span>
-              <strong>One clear conversation thread</strong>
+              <span>Channel</span>
+              <strong>One clear support conversation</strong>
             </div>
           </div>
         </section>
@@ -503,7 +533,7 @@ export function App() {
           </article>
           <article>
             <strong>Handled by the right team</strong>
-            <p>Admins assign conversations and keep agents accountable.</p>
+            <p>Support can route by branch or department as your team grows.</p>
           </article>
         </section>
       </main>
@@ -661,6 +691,24 @@ export function App() {
               <label>
                 Support email
                 <input name="supportEmail" type="email" defaultValue={settings.supportEmail} required />
+              </label>
+              <label>
+                Subsidiaries
+                <input
+                  name="subsidiaries"
+                  defaultValue={settings.subsidiaries.join(", ")}
+                  placeholder="Accra Office, Kumasi Office"
+                  required
+                />
+              </label>
+              <label>
+                Departments
+                <input
+                  name="departments"
+                  defaultValue={settings.departments.join(", ")}
+                  placeholder="General Support, Billing, Technical Support"
+                  required
+                />
               </label>
               <label>
                 Max active chats

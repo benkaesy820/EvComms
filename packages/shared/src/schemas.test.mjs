@@ -53,13 +53,17 @@ describe("shared validation contracts", () => {
       companyName: "Ev Network",
       tagline: "Support that feels human.",
       supportEmail: "support@example.com",
+      subsidiaries: ["Accra Office", "Kumasi Office"],
+      departments: ["General Support", "Billing"],
       maxActiveConversationsPerAgent: 20,
       emailNotificationDebounceMinutes: 5
     });
 
     assert.equal(settings.maxActiveConversationsPerAgent, 20);
+    assert.deepEqual(settings.subsidiaries, ["Accra Office", "Kumasi Office"]);
     assert.equal(appSettingsSchema.safeParse({ ...settings, maxActiveConversationsPerAgent: 0 }).success, false);
     assert.equal(appSettingsSchema.safeParse({ ...settings, emailNotificationDebounceMinutes: 31 }).success, false);
+    assert.equal(appSettingsSchema.safeParse({ ...settings, departments: [""] }).success, false);
   });
 
   test("password reset inputs are constrained", () => {

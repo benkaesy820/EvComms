@@ -191,6 +191,8 @@ export const appSettingsSchema = z.object({
   companyName: z.string().trim().min(1).max(120),
   tagline: z.string().trim().min(1).max(240),
   supportEmail: z.string().trim().email().max(320),
+  subsidiaries: z.array(z.string().trim().min(1).max(80)).max(12),
+  departments: z.array(z.string().trim().min(1).max(80)).max(20),
   maxActiveConversationsPerAgent: z.number().int().min(1).max(200),
   emailNotificationDebounceMinutes: z.number().int().min(1).max(30)
 });
