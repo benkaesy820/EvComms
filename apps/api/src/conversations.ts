@@ -1,14 +1,16 @@
-import { auditLogs, conversations, messages, users } from "@evbus/db";
+import { agentDepartments, auditLogs, conversations, files, messageAttachments, messages, reports, users } from "@evbus/db";
 import {
+  conversationListQuerySchema,
   conversationResponseSchema,
   conversationsResponseSchema,
   closeConversationRequestSchema,
   createMessageRequestSchema,
   createMessageResponseSchema,
+  messageListQuerySchema,
   messagesResponseSchema,
   reassignConversationRequestSchema
 } from "@evbus/shared";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lt, ne, or, sql } from "drizzle-orm";
 import { requireUser } from "./auth";
 import { getDb } from "./db";
 import { HttpError, json, readJson } from "./http";
@@ -54,6 +56,7 @@ export async function handleConversations(
         id: conversations.id,
         customerId: conversations.customerId,
         assignedAgentId: conversations.assignedAgentId,
+        departmentId: conversations.departmentId,
         status: conversations.status,
         lastMessageAt: conversations.lastMessageAt,
         lastCustomerMessageAt: conversations.lastCustomerMessageAt,
@@ -74,8 +77,34 @@ export async function handleConversations(
       .innerJoin(users, eq(conversations.customerId, users.id))
       .$dynamic();
 
+    const filters = [];
+    const listQuery = conversationListQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
+    if (listQuery.status) filters.push(eq(conversations.status, listQuery.status));
+    if (listQuery.assigned === "unassigned") filters.push(sql`${conversations.assignedAgentId} IS NULL`);
+    if (listQuery.search) {
+      const term = `%${listQuery.search}%`;
+      filters.push(or(like(users.name, term), like(users.email, term)));
+    }
+    if (listQuery.cursor) filters.push(lt(conversations.updatedAt, new Date(listQuery.cursor)));
+    if (listQuery.waiting === "true") {
+      filters.push(sql`${conversations.status} = 'open'
+        AND ${conversations.lastCustomerMessageAt} IS NOT NULL
+        AND (${conversations.lastAgentMessageAt} IS NULL OR ${conversations.lastCustomerMessageAt} > ${conversations.lastAgentMessageAt})`);
+    }
+    if (listQuery.waiting === "false") {
+      filters.push(sql`NOT (${conversations.status} = 'open'
+        AND ${conversations.lastCustomerMessageAt} IS NOT NULL
+        AND (${conversations.lastAgentMessageAt} IS NULL OR ${conversations.lastCustomerMessageAt} > ${conversations.lastAgentMessageAt}))`);
+    }
+
     if (actor.role === "agent") {
-      query = query.where(eq(conversations.assignedAgentId, actor.id));
+      filters.push(eq(conversations.assignedAgentId, actor.id));
+    } else if (listQuery.assigned === "mine") {
+      filters.push(eq(conversations.assignedAgentId, actor.id));
+    }
+
+    if (filters.length) {
+      query = query.where(and(...filters));
     }
 
     const waitingRank = sql`CASE WHEN ${conversations.status} = 'open'
@@ -88,7 +117,7 @@ export async function handleConversations(
       THEN ${conversations.lastCustomerMessageAt} ELSE NULL END`;
     const rows = await query
       .orderBy(waitingRank, waitingSince, desc(conversations.lastMessageAt), desc(conversations.createdAt))
-      .limit(100);
+      .limit(listQuery.limit);
 
     return json(
       conversationsResponseSchema.parse({
@@ -251,6 +280,7 @@ export async function handleConversations(
     const actor = await requireUser(request, env);
     const conversation = await requireConversationAccess(env, actor, messagesMatch[1]);
     const db = getDb(env);
+    const listQuery = messageListQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
     const rows = await db
       .select({
         id: messages.id,
@@ -263,9 +293,19 @@ export async function handleConversations(
       })
       .from(messages)
       .innerJoin(users, eq(messages.senderId, users.id))
-      .where(eq(messages.conversationId, conversation.id))
+      .where(
+        listQuery.before
+          ? and(eq(messages.conversationId, conversation.id), lt(messages.createdAt, new Date(listQuery.before)))
+          : eq(messages.conversationId, conversation.id)
+      )
       .orderBy(desc(messages.createdAt))
-      .limit(200);
+      .limit(listQuery.limit);
+
+    const orderedRows = rows.reverse();
+    const attachmentsByMessageId = await getMessageAttachments(
+      db,
+      orderedRows.map((message) => message.id)
+    );
 
     await markConversationRead(db, actor.role, conversation);
     await broadcastConversationEvent(env, conversation.id, {
@@ -274,7 +314,13 @@ export async function handleConversations(
       readerRole: actor.role
     });
 
-    return json(messagesResponseSchema.parse({ messages: rows.reverse().map(serializeMessage) }));
+    return json(
+      messagesResponseSchema.parse({
+        messages: orderedRows.map((message) =>
+          serializeMessage(message, attachmentsByMessageId.get(message.id) ?? [])
+        )
+      })
+    );
   }
 
   if (messagesMatch && request.method === "POST") {
@@ -287,19 +333,28 @@ export async function handleConversations(
     const db = getDb(env);
     const messageId = crypto.randomUUID();
     const now = new Date();
+    const body = input.body ?? "";
+    const attachmentIds = [...new Set(input.attachmentIds ?? [])];
+    const attachedFiles = await getOwnedFiles(db, actor.id, attachmentIds);
+    if (attachedFiles.length !== attachmentIds.length) {
+      throw new HttpError(400, "One or more attachments are invalid.");
+    }
+    const attachedFilesById = new Map(attachedFiles.map((file) => [file.id, file]));
+    const serializedAttachments = attachmentIds.map((fileId) => serializeFile(attachedFilesById.get(fileId)!));
+    const preview = body || `${attachmentIds.length} attachment${attachmentIds.length === 1 ? "" : "s"}`;
 
     await db.insert(messages).values({
       id: messageId,
       conversationId: conversation.id,
       senderId: actor.id,
-      body: input.body,
+      body,
       createdAt: now
     });
 
     const isCustomerMessage = actor.role === "customer";
     const nextAssignedAgentId =
       isCustomerMessage && !conversation.assignedAgentId
-        ? await chooseAgentForConversation(env)
+        ? await chooseAgentForConversation(env, undefined, conversation.departmentId)
         : conversation.assignedAgentId;
 
     await db
@@ -309,15 +364,25 @@ export async function handleConversations(
         lastMessageAt: now,
         lastCustomerMessageAt: isCustomerMessage ? now : conversation.lastCustomerMessageAt,
         lastAgentMessageAt: isCustomerMessage ? conversation.lastAgentMessageAt : now,
-        lastMessagePreview: input.body.slice(0, 180),
+        lastMessagePreview: preview.slice(0, 180),
         customerUnreadCount: isCustomerMessage ? conversation.customerUnreadCount : sql`${conversations.customerUnreadCount} + 1`,
         agentUnreadCount: isCustomerMessage ? sql`${conversations.agentUnreadCount} + 1` : 0,
         updatedAt: now
       })
       .where(eq(conversations.id, conversation.id));
+    if (attachmentIds.length) {
+      await db.insert(messageAttachments).values(
+        attachmentIds.map((fileId) => ({
+          id: crypto.randomUUID(),
+          messageId,
+          fileId
+        }))
+      );
+    }
 
     await audit(db, actor.id, "conversation.message.created", "message", messageId, request, {
-      conversationId: conversation.id
+      conversationId: conversation.id,
+      attachmentCount: attachmentIds.length
     });
 
     if (isCustomerMessage && !conversation.assignedAgentId) {
@@ -356,7 +421,7 @@ export async function handleConversations(
       throw new HttpError(500, "Message was not saved.");
     }
 
-    const serializedMessage = serializeMessage(message);
+    const serializedMessage = serializeMessage(message, serializedAttachments);
     const notifications = enqueueMessageNotifications(
       env,
       { ...conversation, assignedAgentId: nextAssignedAgentId },
@@ -466,8 +531,10 @@ export async function getOrCreateCustomerConversation(env: Env, customerId: stri
         .update(conversations)
         .set({ registrationNote: customer.registrationNote, updatedAt: new Date() })
         .where(eq(conversations.id, existing.id));
+      await linkRegistrationReports(db, customerId, existing.id);
       return { ...existing, registrationNote: customer.registrationNote };
     }
+    await linkRegistrationReports(db, customerId, existing.id);
     return existing;
   }
 
@@ -478,6 +545,7 @@ export async function getOrCreateCustomerConversation(env: Env, customerId: stri
       id,
       customerId,
       assignedAgentId: null,
+      departmentId: null,
       registrationNote: customer?.registrationNote ?? null,
       status: "open"
     });
@@ -499,17 +567,25 @@ export async function getOrCreateCustomerConversation(env: Env, customerId: stri
   if (!created) {
     throw new HttpError(500, "Conversation was not created.");
   }
+  await linkRegistrationReports(db, customerId, created.id);
 
   return created;
 }
 
-export async function chooseAgentForConversation(env: Env, excludeAgentId?: string) {
+async function linkRegistrationReports(db: ReturnType<typeof getDb>, customerId: string, conversationId: string) {
+  await db
+    .update(reports)
+    .set({ conversationId, updatedAt: new Date() })
+    .where(and(eq(reports.customerId, customerId), eq(reports.source, "registration"), sql`${reports.conversationId} IS NULL`));
+}
+
+export async function chooseAgentForConversation(env: Env, excludeAgentId?: string, departmentId?: string | null) {
   const db = getDb(env);
   const settings = await getAppSettings(env);
   const filters = [eq(users.role, "agent"), eq(users.status, "approved")];
   if (excludeAgentId) filters.push(ne(users.id, excludeAgentId));
 
-  const approvedAgents = await db
+  let approvedAgentQuery = db
     .select({
       id: users.id,
       activeConversationCount: sql<number>`COUNT(conversations.id)`
@@ -519,6 +595,16 @@ export async function chooseAgentForConversation(env: Env, excludeAgentId?: stri
       conversations,
       and(eq(conversations.assignedAgentId, users.id), eq(conversations.status, "open"))
     )
+    .$dynamic();
+
+  if (departmentId) {
+    approvedAgentQuery = approvedAgentQuery.innerJoin(
+      agentDepartments,
+      and(eq(agentDepartments.agentId, users.id), eq(agentDepartments.departmentId, departmentId))
+    );
+  }
+
+  const approvedAgents = await approvedAgentQuery
     .where(and(...filters))
     .groupBy(users.id)
     .having(sql`COUNT(conversations.id) < ${settings.maxActiveConversationsPerAgent}`)
@@ -619,10 +705,59 @@ async function audit(
   });
 }
 
+async function getOwnedFiles(db: ReturnType<typeof getDb>, ownerId: string, fileIds: string[]) {
+  if (!fileIds.length) return [];
+
+  return db
+    .select({
+      id: files.id,
+      ownerId: files.ownerId,
+      mimeType: files.mimeType,
+      originalFilename: files.originalFilename,
+      sizeBytes: files.sizeBytes,
+      kind: files.kind,
+      metadataStripped: files.metadataStripped,
+      createdAt: files.createdAt
+    })
+    .from(files)
+    .where(and(eq(files.ownerId, ownerId), inArray(files.id, fileIds)))
+    .limit(fileIds.length);
+}
+
+async function getMessageAttachments(db: ReturnType<typeof getDb>, messageIds: string[]) {
+  const attachments = new Map<string, ReturnType<typeof serializeFile>[]>();
+  if (!messageIds.length) return attachments;
+
+  const rows = await db
+    .select({
+      messageId: messageAttachments.messageId,
+      id: files.id,
+      ownerId: files.ownerId,
+      mimeType: files.mimeType,
+      originalFilename: files.originalFilename,
+      sizeBytes: files.sizeBytes,
+      kind: files.kind,
+      metadataStripped: files.metadataStripped,
+      createdAt: files.createdAt
+    })
+    .from(messageAttachments)
+    .innerJoin(files, eq(messageAttachments.fileId, files.id))
+    .where(inArray(messageAttachments.messageId, messageIds));
+
+  for (const row of rows) {
+    const list = attachments.get(row.messageId) ?? [];
+    list.push(serializeFile(row));
+    attachments.set(row.messageId, list);
+  }
+
+  return attachments;
+}
+
 function serializeConversation(conversation: {
   id: string;
   customerId: string;
   assignedAgentId: string | null;
+  departmentId?: string | null;
   status: string;
   lastMessageAt: Date | null;
   lastCustomerMessageAt?: Date | null;
@@ -641,6 +776,7 @@ function serializeConversation(conversation: {
     id: conversation.id,
     customerId: conversation.customerId,
     assignedAgentId: conversation.assignedAgentId,
+    departmentId: conversation.departmentId ?? null,
     status: conversation.status,
     lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
     lastCustomerMessageAt: conversation.lastCustomerMessageAt?.toISOString() ?? null,
@@ -664,7 +800,7 @@ function serializeMessage(message: {
   senderRole: string;
   body: string;
   createdAt: Date;
-}) {
+}, attachments: ReturnType<typeof serializeFile>[] = []) {
   return {
     id: message.id,
     conversationId: message.conversationId,
@@ -672,7 +808,30 @@ function serializeMessage(message: {
     senderName: message.senderName,
     senderRole: message.senderRole,
     body: message.body,
+    attachments,
     createdAt: message.createdAt.toISOString()
+  };
+}
+
+function serializeFile(file: {
+  id: string;
+  ownerId: string;
+  mimeType: string;
+  originalFilename: string;
+  sizeBytes: number;
+  kind: string;
+  metadataStripped: number;
+  createdAt: Date;
+}) {
+  return {
+    id: file.id,
+    ownerId: file.ownerId,
+    mimeType: file.mimeType,
+    originalFilename: file.originalFilename,
+    sizeBytes: file.sizeBytes,
+    kind: file.kind,
+    metadataStripped: file.metadataStripped !== 0,
+    createdAt: file.createdAt.toISOString()
   };
 }
 

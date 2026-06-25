@@ -21,6 +21,7 @@ export const users = mysqlTable(
     status: varchar("status", { length: 32 }).notNull(),
     registrationNote: text("registration_note"),
     emailNotificationsEnabled: int("email_notifications_enabled").notNull().default(1),
+    pushNotificationsEnabled: int("push_notifications_enabled").notNull().default(1),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull()
   },
@@ -104,6 +105,7 @@ export const conversations = mysqlTable(
     id: varchar("id", { length: 36 }).primaryKey(),
     customerId: varchar("customer_id", { length: 36 }).notNull(),
     assignedAgentId: varchar("assigned_agent_id", { length: 36 }),
+    departmentId: varchar("department_id", { length: 36 }),
     status: varchar("status", { length: 32 }).notNull(),
     lastMessageAt: timestamp("last_message_at"),
     lastCustomerMessageAt: timestamp("last_customer_message_at"),
@@ -121,6 +123,7 @@ export const conversations = mysqlTable(
   (table) => [
     uniqueIndex("conversations_customer_id_unique").on(table.customerId),
     index("conversations_assigned_agent_id_idx").on(table.assignedAgentId),
+    index("conversations_department_id_idx").on(table.departmentId),
     index("conversations_status_last_message_idx").on(table.status, table.lastMessageAt),
     index("conversations_waiting_idx").on(table.status, table.lastCustomerMessageAt, table.lastAgentMessageAt)
   ]
@@ -133,11 +136,48 @@ export const messages = mysqlTable(
     conversationId: varchar("conversation_id", { length: 36 }).notNull(),
     senderId: varchar("sender_id", { length: 36 }).notNull(),
     body: text("body").notNull(),
+    readAt: timestamp("read_at"),
     createdAt: timestamp("created_at").defaultNow().notNull()
   },
   (table) => [
     index("messages_conversation_created_idx").on(table.conversationId, table.createdAt),
     index("messages_sender_id_idx").on(table.senderId)
+  ]
+);
+
+export const files = mysqlTable(
+  "files",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    ownerId: varchar("owner_id", { length: 36 }).notNull(),
+    storageKey: varchar("storage_key", { length: 512 }).notNull(),
+    sha256Hash: varchar("sha256_hash", { length: 64 }).notNull(),
+    mimeType: varchar("mime_type", { length: 128 }).notNull(),
+    originalFilename: varchar("original_filename", { length: 255 }).notNull(),
+    sizeBytes: int("size_bytes").notNull(),
+    kind: varchar("kind", { length: 32 }).notNull(),
+    metadataStripped: int("metadata_stripped").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex("files_sha256_hash_unique").on(table.sha256Hash),
+    index("files_owner_id_idx").on(table.ownerId),
+    index("files_storage_key_idx").on(table.storageKey)
+  ]
+);
+
+export const messageAttachments = mysqlTable(
+  "message_attachments",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    messageId: varchar("message_id", { length: 36 }).notNull(),
+    fileId: varchar("file_id", { length: 36 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex("message_attachments_message_file_unique").on(table.messageId, table.fileId),
+    index("message_attachments_message_id_idx").on(table.messageId),
+    index("message_attachments_file_id_idx").on(table.fileId)
   ]
 );
 
@@ -196,6 +236,76 @@ export const reports = mysqlTable(
     index("reports_conversation_id_idx").on(table.conversationId),
     index("reports_department_id_idx").on(table.departmentId),
     index("reports_status_created_idx").on(table.status, table.createdAt)
+  ]
+);
+
+export const pushSubscriptions = mysqlTable(
+  "push_subscriptions",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    userId: varchar("user_id", { length: 36 }).notNull(),
+    endpoint: varchar("endpoint", { length: 2048 }).notNull(),
+    endpointHash: varchar("endpoint_hash", { length: 64 }).notNull(),
+    p256dh: varchar("p256dh", { length: 512 }).notNull(),
+    auth: varchar("auth", { length: 512 }).notNull(),
+    userAgent: varchar("user_agent", { length: 512 }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex("push_subscriptions_endpoint_hash_unique").on(table.endpointHash),
+    index("push_subscriptions_user_id_idx").on(table.userId)
+  ]
+);
+
+export const announcements = mysqlTable(
+  "announcements",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    authorId: varchar("author_id", { length: 36 }).notNull(),
+    audience: varchar("audience", { length: 32 }).notNull(),
+    title: varchar("title", { length: 160 }).notNull(),
+    body: text("body").notNull(),
+    imageFileId: varchar("image_file_id", { length: 36 }),
+    showPublic: int("show_public").notNull().default(0),
+    expiresAt: timestamp("expires_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull()
+  },
+  (table) => [
+    index("announcements_audience_created_idx").on(table.audience, table.createdAt),
+    index("announcements_expires_at_idx").on(table.expiresAt),
+    index("announcements_author_id_idx").on(table.authorId)
+  ]
+);
+
+export const announcementReactions = mysqlTable(
+  "announcement_reactions",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    announcementId: varchar("announcement_id", { length: 36 }).notNull(),
+    userId: varchar("user_id", { length: 36 }).notNull(),
+    reaction: varchar("reaction", { length: 32 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex("announcement_reactions_announcement_user_unique").on(table.announcementId, table.userId),
+    index("announcement_reactions_user_id_idx").on(table.userId)
+  ]
+);
+
+export const announcementComments = mysqlTable(
+  "announcement_comments",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    announcementId: varchar("announcement_id", { length: 36 }).notNull(),
+    userId: varchar("user_id", { length: 36 }).notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull()
+  },
+  (table) => [
+    index("announcement_comments_announcement_created_idx").on(table.announcementId, table.createdAt),
+    index("announcement_comments_user_id_idx").on(table.userId)
   ]
 );
 

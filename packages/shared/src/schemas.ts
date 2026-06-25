@@ -62,7 +62,8 @@ export const authResponseSchema = z.object({
 });
 
 export const accountPreferencesSchema = z.object({
-  emailNotificationsEnabled: z.boolean()
+  emailNotificationsEnabled: z.boolean(),
+  pushNotificationsEnabled: z.boolean().optional()
 });
 
 export const accountPreferencesResponseSchema = z.object({
@@ -111,6 +112,7 @@ export const conversationSchema = z.object({
   id: z.string(),
   customerId: z.string(),
   assignedAgentId: z.string().nullable(),
+  departmentId: z.string().nullable().optional(),
   status: z.enum(["open", "closed"]),
   lastMessageAt: z.string().datetime().nullable(),
   lastCustomerMessageAt: z.string().datetime().nullable(),
@@ -125,6 +127,21 @@ export const conversationSchema = z.object({
   updatedAt: z.string().datetime()
 });
 
+export const fileRecordSchema = z.object({
+  id: z.string(),
+  ownerId: z.string(),
+  mimeType: z.string(),
+  originalFilename: z.string(),
+  sizeBytes: z.number().int(),
+  kind: z.enum(["image", "document"]),
+  metadataStripped: z.boolean(),
+  createdAt: z.string().datetime()
+});
+
+export const fileResponseSchema = z.object({
+  file: fileRecordSchema
+});
+
 export const messageSchema = z.object({
   id: z.string(),
   conversationId: z.string(),
@@ -132,6 +149,7 @@ export const messageSchema = z.object({
   senderName: z.string(),
   senderRole: userRoleSchema,
   body: z.string(),
+  attachments: z.array(fileRecordSchema).default([]),
   createdAt: z.string().datetime()
 });
 
@@ -153,9 +171,14 @@ export const messagesResponseSchema = z.object({
   messages: z.array(messageSchema)
 });
 
-export const createMessageRequestSchema = z.object({
-  body: z.string().trim().min(1).max(5000)
-});
+export const createMessageRequestSchema = z
+  .object({
+    body: z.string().trim().max(5000).optional().default(""),
+    attachmentIds: z.array(z.string().min(1)).max(5).optional().default([])
+  })
+  .refine((value) => value.body.length > 0 || value.attachmentIds.length > 0, {
+    message: "Message body or attachment is required."
+  });
 
 export const createMessageResponseSchema = z.object({
   message: messageSchema
@@ -167,6 +190,20 @@ export const reassignConversationRequestSchema = z.object({
 
 export const closeConversationRequestSchema = z.object({
   note: z.string().trim().min(1).max(1000)
+});
+
+export const conversationListQuerySchema = z.object({
+  status: z.enum(["open", "closed"]).optional(),
+  assigned: z.enum(["mine", "unassigned", "any"]).optional(),
+  waiting: z.enum(["true", "false"]).optional(),
+  search: z.string().trim().max(160).optional(),
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50)
+});
+
+export const messageListQuerySchema = z.object({
+  before: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50)
 });
 
 export const realtimeEventSchema = z.discriminatedUnion("type", [
@@ -224,6 +261,12 @@ export const notificationJobsResponseSchema = z.object({
   jobs: z.array(notificationJobSchema)
 });
 
+export const notificationJobsQuerySchema = z.object({
+  status: z.string().trim().max(32).optional(),
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(25)
+});
+
 export const processNotificationJobsRequestSchema = z.object({
   dryRun: z.boolean().optional().default(false),
   limit: z.number().int().min(1).max(25).optional().default(5)
@@ -262,6 +305,15 @@ export const auditLogSchema = z.object({
 
 export const auditLogsResponseSchema = z.object({
   logs: z.array(auditLogSchema)
+});
+
+export const auditLogsQuerySchema = z.object({
+  action: z.string().trim().max(96).optional(),
+  actorId: z.string().trim().max(64).optional(),
+  targetType: z.string().trim().max(64).optional(),
+  targetId: z.string().trim().max(64).optional(),
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50)
 });
 
 export const adminHealthResponseSchema = z.object({
@@ -339,6 +391,63 @@ export const updateReportStatusRequestSchema = z.object({
   status: reportStatusSchema
 });
 
+export const reportsQuerySchema = z.object({
+  status: reportStatusSchema.optional(),
+  departmentId: z.string().trim().min(1).optional(),
+  cursor: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50)
+});
+
+export const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(2048),
+  p256dh: z.string().min(20).max(512),
+  auth: z.string().min(10).max(512)
+});
+
+export const pushSubscriptionsResponseSchema = z.object({
+  subscriptions: z.array(pushSubscriptionSchema.pick({ endpoint: true }))
+});
+
+export const announcementAudienceSchema = z.enum(["customers", "agents", "everyone"]);
+
+export const announcementSchema = z.object({
+  id: z.string(),
+  authorId: z.string(),
+  audience: announcementAudienceSchema,
+  title: z.string(),
+  body: z.string(),
+  imageFileId: z.string().nullable(),
+  showPublic: z.boolean(),
+  expiresAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+
+export const announcementsResponseSchema = z.object({
+  announcements: z.array(announcementSchema)
+});
+
+export const announcementResponseSchema = z.object({
+  announcement: announcementSchema
+});
+
+export const createAnnouncementRequestSchema = z.object({
+  audience: announcementAudienceSchema,
+  title: z.string().trim().min(2).max(160),
+  body: z.string().trim().min(1).max(10000),
+  imageFileId: z.string().min(1).optional(),
+  showPublic: z.boolean().optional().default(false),
+  expiresAt: z.string().datetime().optional()
+});
+
+export const announcementReactionRequestSchema = z.object({
+  reaction: z.enum(["up", "down", "like", "love"])
+});
+
+export const announcementCommentRequestSchema = z.object({
+  body: z.string().trim().min(1).max(2000)
+});
+
 export const appSettingsSchema = z.object({
   siteName: z.string().trim().min(1).max(80),
   companyName: z.string().trim().min(1).max(120),
@@ -347,7 +456,12 @@ export const appSettingsSchema = z.object({
   subsidiaries: z.array(z.string().trim().min(1).max(80)).max(12),
   departments: z.array(z.string().trim().min(1).max(80)).max(20),
   maxActiveConversationsPerAgent: z.number().int().min(1).max(200),
-  emailNotificationDebounceMinutes: z.number().int().min(1).max(30)
+  maxActiveSessionsPerUser: z.number().int().min(1).max(10),
+  maxImageSizeMb: z.number().int().min(1).max(25),
+  maxDocumentSizeMb: z.number().int().min(1).max(50),
+  dailyUploadLimit: z.number().int().min(1).max(500),
+  emailNotificationDebounceMinutes: z.number().int().min(1).max(30),
+  pushNotificationsEnabled: z.boolean()
 });
 
 export const settingsResponseSchema = z.object({

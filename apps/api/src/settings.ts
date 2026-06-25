@@ -22,7 +22,12 @@ export const defaultSettings = appSettingsSchema.parse({
   subsidiaries: ["Accra Office", "Kumasi Office"],
   departments: ["General Support", "Billing", "Technical Support"],
   maxActiveConversationsPerAgent: 20,
-  emailNotificationDebounceMinutes: 5
+  maxActiveSessionsPerUser: 2,
+  maxImageSizeMb: 5,
+  maxDocumentSizeMb: 10,
+  dailyUploadLimit: 50,
+  emailNotificationDebounceMinutes: 5,
+  pushNotificationsEnabled: false
 });
 type AppSettings = typeof defaultSettings;
 let cachedSettings: { value: AppSettings; expiresAt: number } | null = null;

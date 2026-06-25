@@ -1,9 +1,11 @@
-import { auditLogs, authRateLimits, passwordResetTokens, reports, runMigrations, sessions, users } from "@evbus/db";
+import { auditLogs, authRateLimits, passwordResetTokens, pushSubscriptions, reports, runMigrations, sessions, users } from "@evbus/db";
 import {
   accountPreferencesResponseSchema,
   authResponseSchema,
   loginRequestSchema,
   publicUserSchema,
+  pushSubscriptionSchema,
+  pushSubscriptionsResponseSchema,
   registerRequestSchema,
   requestPasswordResetSchema,
   resetPasswordSchema,
@@ -17,9 +19,9 @@ import type { Env } from "./index";
 import { hashPassword, randomToken, sha256Hex, verifyPassword } from "./crypto";
 import { HttpError, json, readJson } from "./http";
 import { enqueueNotification, processNotificationJobs } from "./notifications";
+import { getAppSettings } from "./settings";
 
 const sessionDays = 30;
-const maxSessionsPerUser = 2;
 const loginLockThreshold = 10;
 const loginLockMinutes = 30;
 const resetLockThreshold = 5;
@@ -59,6 +61,18 @@ export async function handleAuth(
 
   if (pathname === "/account/preferences" && request.method === "PUT") {
     return updatePreferences(request, env);
+  }
+
+  if (pathname === "/push-subscriptions" && request.method === "GET") {
+    return listPushSubscriptions(request, env);
+  }
+
+  if (pathname === "/push-subscriptions" && request.method === "POST") {
+    return savePushSubscription(request, env);
+  }
+
+  if (pathname === "/push-subscriptions" && request.method === "DELETE") {
+    return deletePushSubscription(request, env);
   }
 
   if (pathname === "/auth/request-password-reset" && request.method === "POST") {
@@ -231,7 +245,7 @@ async function login(request: Request, env: Env) {
     expiresAt
   });
 
-  await trimSessions(db, user.id);
+  await trimSessions(db, user.id, (await getAppSettings(env)).maxActiveSessionsPerUser);
   await audit(db, user.id, "auth.login", "user", user.id, request);
 
   const response = json(authResponseSchema.parse({ user: toPublicUser(user) }));
@@ -309,7 +323,10 @@ async function getPreferences(request: Request, env: Env) {
   const user = await requireUser(request, env);
   const db = getDb(env);
   const [row] = await db
-    .select({ emailNotificationsEnabled: users.emailNotificationsEnabled })
+    .select({
+      emailNotificationsEnabled: users.emailNotificationsEnabled,
+      pushNotificationsEnabled: users.pushNotificationsEnabled
+    })
     .from(users)
     .where(eq(users.id, user.id))
     .limit(1);
@@ -317,7 +334,8 @@ async function getPreferences(request: Request, env: Env) {
   return json(
     accountPreferencesResponseSchema.parse({
       preferences: {
-        emailNotificationsEnabled: row?.emailNotificationsEnabled !== 0
+        emailNotificationsEnabled: row?.emailNotificationsEnabled !== 0,
+        pushNotificationsEnabled: row?.pushNotificationsEnabled !== 0
       }
     })
   );
@@ -327,10 +345,13 @@ async function updatePreferences(request: Request, env: Env) {
   const user = await requireUser(request, env);
   const input = await readJson(request, updateAccountPreferencesRequestSchema);
   const db = getDb(env);
-  const updates: { emailNotificationsEnabled?: number; updatedAt: Date } = { updatedAt: new Date() };
+  const updates: { emailNotificationsEnabled?: number; pushNotificationsEnabled?: number; updatedAt: Date } = { updatedAt: new Date() };
 
   if (typeof input.emailNotificationsEnabled === "boolean") {
     updates.emailNotificationsEnabled = input.emailNotificationsEnabled ? 1 : 0;
+  }
+  if (typeof input.pushNotificationsEnabled === "boolean") {
+    updates.pushNotificationsEnabled = input.pushNotificationsEnabled ? 1 : 0;
   }
 
   await db.update(users).set(updates).where(eq(users.id, user.id));
@@ -339,10 +360,73 @@ async function updatePreferences(request: Request, env: Env) {
   return json(
     accountPreferencesResponseSchema.parse({
       preferences: {
-        emailNotificationsEnabled: input.emailNotificationsEnabled ?? true
+        emailNotificationsEnabled: input.emailNotificationsEnabled ?? true,
+        pushNotificationsEnabled: input.pushNotificationsEnabled ?? true
       }
     })
   );
+}
+
+async function listPushSubscriptions(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const db = getDb(env);
+  const rows = await db
+    .select({ endpoint: pushSubscriptions.endpoint })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, user.id))
+    .limit(20);
+
+  return json(pushSubscriptionsResponseSchema.parse({ subscriptions: rows }));
+}
+
+async function savePushSubscription(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const input = await readJson(request, pushSubscriptionSchema);
+  const db = getDb(env);
+  const now = new Date();
+  const endpointHash = await sha256Hex(input.endpoint);
+
+  await db
+    .insert(pushSubscriptions)
+    .values({
+      id: crypto.randomUUID(),
+      userId: user.id,
+      endpoint: input.endpoint,
+      endpointHash,
+      p256dh: input.p256dh,
+      auth: input.auth,
+      userAgent: request.headers.get("User-Agent"),
+      updatedAt: now
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        userId: user.id,
+        p256dh: input.p256dh,
+        auth: input.auth,
+        userAgent: request.headers.get("User-Agent"),
+        updatedAt: now
+      }
+    });
+
+  await audit(db, user.id, "push_subscription.saved", "user", user.id, request, {
+    endpointHost: new URL(input.endpoint).host
+  });
+  return json({ ok: true });
+}
+
+async function deletePushSubscription(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const input = await readJson(request, pushSubscriptionSchema.pick({ endpoint: true }));
+  const db = getDb(env);
+  const endpointHash = await sha256Hex(input.endpoint);
+
+  await db
+    .delete(pushSubscriptions)
+    .where(and(eq(pushSubscriptions.userId, user.id), eq(pushSubscriptions.endpointHash, endpointHash)));
+  await audit(db, user.id, "push_subscription.deleted", "user", user.id, request, {
+    endpointHost: new URL(input.endpoint).host
+  });
+  return json({ ok: true });
 }
 
 async function requestPasswordReset(request: Request, env: Env, ctx?: ExecutionContext) {
@@ -490,7 +574,7 @@ async function bootstrapAdmin(request: Request, env: Env) {
   );
 }
 
-async function trimSessions(db: ReturnType<typeof getDb>, userId: string) {
+async function trimSessions(db: ReturnType<typeof getDb>, userId: string, maxSessionsPerUser: number) {
   const activeSessions = await db
     .select({ id: sessions.id })
     .from(sessions)

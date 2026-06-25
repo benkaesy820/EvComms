@@ -1,7 +1,9 @@
 import { appConfig, healthResponseSchema } from "@evbus/shared";
+import { handleAnnouncements } from "./announcements";
 import { handleAdmin } from "./admin";
 import { handleAuth } from "./auth";
 import { handleConversations } from "./conversations";
+import { handleFiles } from "./files";
 import { HttpError, json, notFound } from "./http";
 import { processNotificationJobs } from "./notifications";
 import { handleReports } from "./reports";
@@ -22,6 +24,7 @@ export interface Env {
   GMAIL_CLIENT_SECRET?: string;
   GMAIL_REFRESH_TOKEN?: string;
   GMAIL_FROM?: string;
+  FILE_BUCKET?: R2Bucket;
   REALTIME_ROOM: DurableObjectNamespace<RealtimeRoom>;
 }
 
@@ -29,7 +32,7 @@ const allowedOrigins = new Set(["http://localhost:5173", "http://127.0.0.1:5173"
 const baseCorsHeaders = {
   "Access-Control-Allow-Credentials": "true",
   "Access-Control-Allow-Headers": "content-type",
-  "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS"
+  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS"
 };
 
 export default {
@@ -69,6 +72,12 @@ export default {
 
       const reportResponse = await handleReports(request, env, url.pathname);
       if (reportResponse) return withCors(reportResponse, request);
+
+      const announcementResponse = await handleAnnouncements(request, env, url.pathname);
+      if (announcementResponse) return withCors(announcementResponse, request);
+
+      const fileResponse = await handleFiles(request, env, url.pathname);
+      if (fileResponse) return withCors(fileResponse, request);
 
       return withCors(notFound(), request);
     } catch (error) {

@@ -311,7 +311,7 @@ export function App() {
 
     try {
       setMessage("");
-      const sentMessage = await sendMessage(conversationId, { body });
+      const sentMessage = await sendMessage(conversationId, { body, attachmentIds: [] });
       setMessageCache((current) => {
         const cachedMessages = current[conversationId] ?? [];
         if (cachedMessages.some((item) => item.id === sentMessage.id)) return current;

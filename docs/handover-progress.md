@@ -208,7 +208,8 @@ Not fully implemented:
 - Gmail API fallback is implemented when Gmail OAuth config is present.
 - Notification jobs track the provider that delivered the email.
 - Production Brevo/Gmail credentials still need deployment verification.
-- Push notifications are not implemented.
+- Push subscription storage and preference APIs exist.
+- Actual Web Push delivery is not implemented yet.
 - Notification preferences have backend support but no dedicated UI yet.
 - Health/alerting around notification failures is not implemented.
 - Notification details UI is thin.
@@ -224,14 +225,19 @@ Implemented settings:
 - subsidiaries list
 - departments list
 - max active conversations per agent
+- max active sessions per user
+- max image upload size
+- max document upload size
+- daily upload limit
 - email notification debounce minutes
+- global push notification enable flag
 
 Important limitation:
 
 - Settings still include simple subsidiary/department labels for display.
-- V2 now has real department tables and agent mappings, but assignment routing does not use them yet.
+- V2 now has real department tables and agent mappings. First-message assignment can use a conversation department, but there is no full routing UI yet.
 
-### V2 Backend Started
+### V2 Backend Foundation
 
 Implemented:
 
@@ -246,15 +252,33 @@ Implemented:
 - Super Admin/assigned-agent report status update API.
 - Registration notes create a registration-sourced report.
 - Report and department actions are audit logged.
+- Department-aware first-message assignment routing exists when the conversation has a department.
+- Admin/customer report lists support status, department, cursor, and limit filters.
+- Admin conversation lists support status, mine/unassigned, waiting, search, cursor, and limit filters.
+- Message history supports cursor-style older-message loading.
+- `files` table and private file metadata API exist.
+- Upload endpoint validates ownership, daily limits, max size settings, MIME signatures, and R2 storage configuration.
+- `message_attachments` table exists.
+- Messages can carry owned file attachments.
+- Message reads hydrate attachments in one batched query for the page.
+- `push_subscriptions` table exists with endpoint-hash uniqueness to avoid oversized indexes.
+- Push subscription save/list/delete APIs exist.
+- `announcements`, `announcement_reactions`, and `announcement_comments` tables exist.
+- Super Admin announcement creation API exists.
+- Customer/agent/public announcement list APIs exist.
+- Announcement reaction and comment APIs exist.
+- Expanded acceptance coverage now checks reports, filters, attachments, push subscription lifecycle, announcements, and storage guards.
 
 Not yet implemented:
 
-- Department-aware assignment routing.
 - Report UI.
-- Report attachments.
+- Report attachments in the report API.
 - Report realtime updates.
-- File storage and upload safety pipeline.
-- Announcements.
+- Production R2 bucket binding and deployment verification.
+- Image EXIF/location stripping.
+- Expiring private file download URLs or streamed file retrieval.
+- Real Web Push delivery with VAPID/encrypted payloads.
+- Announcement UI.
 
 ### UI And Layout
 
@@ -313,6 +337,12 @@ Current tables:
 - `agent_departments`
 - `reports`
 - `notification_jobs`
+- `files`
+- `message_attachments`
+- `push_subscriptions`
+- `announcements`
+- `announcement_reactions`
+- `announcement_comments`
 
 Useful indexes already present:
 
@@ -335,15 +365,16 @@ Useful indexes already present:
 - notification status/next-attempt lookup
 - notification recipient lookup
 - notification dedupe uniqueness
+- file owner/storage/hash lookup indexes
+- message attachment message/file lookup indexes
+- push subscription user lookup and endpoint-hash uniqueness
+- announcement audience/expiry/author lookup indexes
+- announcement reaction uniqueness by announcement/user
+- announcement comment announcement/created lookup index
 
 Not yet present:
 
-- files
-- message attachments
-- announcements
-- announcement reactions/comments
-- user notification preferences
-- read receipt table or per-message read state
+- read receipt table for per-user/per-message state
 - presence/session activity table
 
 ## Backend Features With No Or Partial UI
@@ -366,6 +397,9 @@ These are the main things already partly in backend/data but not fully surfaced 
 - Reassignment: UI supports manual reassignment, but no history/details surface.
 - Close/reopen: works, but UI copy and timeline display need polish.
 - V2 departments/reports: backend exists, no UI wiring yet.
+- V2 files/message attachments: backend metadata and message linkage exist, no upload/attachment UI yet.
+- V2 announcements: backend exists, no UI wiring yet.
+- Push subscriptions: backend storage exists, no browser registration UI and no Web Push delivery yet.
 
 ## Verification Already Performed
 
@@ -395,14 +429,22 @@ Recent acceptance coverage includes:
 - notification dry run
 - session listing
 - notification preferences
+- push subscription lifecycle
+- announcement lifecycle
+- file storage guard
 - first message assignment
+- message attachments
+- conversation filters
 - registration note handoff
 - department creation
 - agent department assignment
 - customer reports
+- filtered reports
+- notification job filters
 - admin reports
 - admin health
 - audit logs
+- filtered audit logs
 - web shell
 
 Additional manual/API verification:
@@ -412,12 +454,15 @@ Additional manual/API verification:
 - Local migration endpoint successfully applied the recent conversation columns/index.
 - Local migration endpoint successfully applied the user notification preference column and audit indexes.
 - Local migration endpoint successfully applied registration-note, notification-provider, department, agent-department, and report tables/columns.
+- Local migration endpoint successfully applied files, message attachments, push subscriptions, announcements, announcement reactions, and announcement comments.
 
 ## Current Git State Notes
 
-Latest pushed commit at handover time:
+Latest pushed commits at handover time:
 
 - `1a8320f Finish V1 backend support loop`
+- `a218a8d Start V2 reports and departments backend`
+- This document is included in the backend expansion commit that follows those pushed commits.
 
 There were untracked local files observed:
 

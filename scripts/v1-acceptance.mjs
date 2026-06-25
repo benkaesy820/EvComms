@@ -20,10 +20,11 @@ async function request(url, options) {
 }
 
 async function api(path, options = {}) {
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   return request(`${apiBaseUrl}${path}`, {
     ...options,
     headers: {
-      ...(options.body ? { "content-type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "content-type": "application/json" } : {}),
       ...(options.cookie ? { cookie: options.cookie } : {}),
       ...options.headers
     }
@@ -174,10 +175,90 @@ if (adminEmail && adminPassword) {
   const preferencesUpdate = await api("/account/preferences", {
     method: "PUT",
     cookie: customerLogin.cookie,
-    body: JSON.stringify({ emailNotificationsEnabled: false })
+    body: JSON.stringify({ emailNotificationsEnabled: false, pushNotificationsEnabled: true })
   });
   assert.equal(preferencesUpdate.response.status, 200);
   assert.equal(preferencesUpdate.body.preferences.emailNotificationsEnabled, false);
+  assert.equal(preferencesUpdate.body.preferences.pushNotificationsEnabled, true);
+  const pushEndpoint = `https://push.example.com/${runId}`;
+  const pushSave = await api("/push-subscriptions", {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({
+      endpoint: pushEndpoint,
+      p256dh: "p256dh-key-material-123456",
+      auth: "auth-secret-123"
+    })
+  });
+  assert.equal(pushSave.response.status, 200);
+  const pushList = await api("/push-subscriptions", { cookie: customerLogin.cookie });
+  assert.equal(pushList.response.status, 200);
+  assert.equal(pushList.body.subscriptions.some((subscription) => subscription.endpoint === pushEndpoint), true);
+  const pushDelete = await api("/push-subscriptions", {
+    method: "DELETE",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({ endpoint: pushEndpoint })
+  });
+  assert.equal(pushDelete.response.status, 200);
+  const pushListAfterDelete = await api("/push-subscriptions", { cookie: customerLogin.cookie });
+  assert.equal(pushListAfterDelete.response.status, 200);
+  assert.equal(pushListAfterDelete.body.subscriptions.some((subscription) => subscription.endpoint === pushEndpoint), false);
+
+  const customerAnnouncement = await api("/admin/announcements", {
+    method: "POST",
+    cookie: adminCookie,
+    body: JSON.stringify({
+      audience: "customers",
+      title: `Acceptance customer announcement ${runId.slice(0, 8)}`,
+      body: "Customer-visible announcement body.",
+      showPublic: true
+    })
+  });
+  assert.equal(customerAnnouncement.response.status, 201);
+  const publicAnnouncements = await api("/public/announcements");
+  assert.equal(publicAnnouncements.response.status, 200);
+  assert.equal(
+    publicAnnouncements.body.announcements.some((announcement) => announcement.id === customerAnnouncement.body.announcement.id),
+    true
+  );
+  const customerAnnouncements = await api("/announcements", { cookie: customerLogin.cookie });
+  assert.equal(customerAnnouncements.response.status, 200);
+  assert.equal(
+    customerAnnouncements.body.announcements.some((announcement) => announcement.id === customerAnnouncement.body.announcement.id),
+    true
+  );
+  assert.equal((await api("/admin/announcements", {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({ audience: "everyone", title: "Nope", body: "Nope" })
+  })).response.status, 403);
+  const announcementReaction = await api(`/announcements/${customerAnnouncement.body.announcement.id}/reaction`, {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({ reaction: "like" })
+  });
+  assert.equal(announcementReaction.response.status, 200);
+  const announcementComment = await api(`/announcements/${customerAnnouncement.body.announcement.id}/comments`, {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({ body: "Looks good." })
+  });
+  assert.equal(announcementComment.response.status, 201);
+
+  const uploadForm = new FormData();
+  uploadForm.set(
+    "file",
+    new File([Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], "acceptance.png", {
+      type: "image/png"
+    })
+  );
+  const uploadAttempt = await api("/files", {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: uploadForm
+  });
+  assert.ok([201, 503].includes(uploadAttempt.response.status));
+
   const customerConversation = await api("/conversations/me", { cookie: customerLogin.cookie });
   assert.equal(customerConversation.response.status, 200);
   assert.equal(customerConversation.body.conversation.registrationNote, registrationInput.registrationNote);
@@ -195,12 +276,29 @@ if (adminEmail && adminPassword) {
   const customerReports = await api("/reports", { cookie: customerLogin.cookie });
   assert.equal(customerReports.response.status, 200);
   assert.equal(customerReports.body.reports.some((report) => report.id === customerReport.body.report.id), true);
+  const customerReportsFiltered = await api(`/reports?status=pending&departmentId=${departmentId}&limit=5`, {
+    cookie: customerLogin.cookie
+  });
+  assert.equal(customerReportsFiltered.response.status, 200);
+  assert.equal(customerReportsFiltered.body.reports.some((report) => report.id === customerReport.body.report.id), true);
+  const attachmentId = await seedAcceptanceFile(customerLogin.body.user.id, runId);
   const customerMessage = await api(`/conversations/${customerConversation.body.conversation.id}/messages`, {
     method: "POST",
     cookie: customerLogin.cookie,
-    body: JSON.stringify({ body: "Hello from acceptance." })
+    body: JSON.stringify({ body: "Hello from acceptance.", attachmentIds: attachmentId ? [attachmentId] : [] })
   });
   assert.equal(customerMessage.response.status, 201);
+  if (attachmentId) {
+    assert.equal(customerMessage.body.message.attachments[0].id, attachmentId);
+  }
+  const latestMessages = await api(`/conversations/${customerConversation.body.conversation.id}/messages?limit=1`, {
+    cookie: customerLogin.cookie
+  });
+  assert.equal(latestMessages.response.status, 200);
+  assert.equal(latestMessages.body.messages.length, 1);
+  if (attachmentId) {
+    assert.equal(latestMessages.body.messages[0].attachments[0].id, attachmentId);
+  }
   const assignedConversations = await api("/admin/conversations", { cookie: adminCookie });
   assert.equal(assignedConversations.response.status, 200);
   assert.notEqual(
@@ -208,6 +306,8 @@ if (adminEmail && adminPassword) {
       ?.assignedAgentId,
     null
   );
+  const waitingConversations = await api("/admin/conversations?waiting=true&limit=5", { cookie: adminCookie });
+  assert.equal(waitingConversations.response.status, 200);
 
   const agentLogin = await login(agentEmail, password);
   assert.equal(agentLogin.response.status, 200);
@@ -224,6 +324,28 @@ if (adminEmail && adminPassword) {
   assert.equal((await api("/conversations/me", { cookie: agentLogin.cookie })).response.status, 403);
   const agentConversations = await api("/admin/conversations", { cookie: agentLogin.cookie });
   assert.equal(agentConversations.response.status, 200);
+  const mineConversations = await api("/admin/conversations?assigned=mine&limit=5", { cookie: agentLogin.cookie });
+  assert.equal(mineConversations.response.status, 200);
+  const agentAnnouncement = await api("/admin/announcements", {
+    method: "POST",
+    cookie: adminCookie,
+    body: JSON.stringify({
+      audience: "agents",
+      title: `Acceptance agent announcement ${runId.slice(0, 8)}`,
+      body: "Agent-visible announcement body."
+    })
+  });
+  assert.equal(agentAnnouncement.response.status, 201);
+  const agentAnnouncements = await api("/announcements", { cookie: agentLogin.cookie });
+  assert.equal(agentAnnouncements.response.status, 200);
+  assert.equal(
+    agentAnnouncements.body.announcements.some((announcement) => announcement.id === customerAnnouncement.body.announcement.id),
+    false
+  );
+  assert.equal(
+    agentAnnouncements.body.announcements.some((announcement) => announcement.id === agentAnnouncement.body.announcement.id),
+    true
+  );
 
   const notificationDryRun = await api("/admin/notification-jobs/process", {
     method: "POST",
@@ -232,13 +354,18 @@ if (adminEmail && adminPassword) {
   });
   assert.equal(notificationDryRun.response.status, 200);
   assert.equal(notificationDryRun.body.dryRun, true);
+  const notificationJobs = await api("/admin/notification-jobs?status=queued&limit=5", { cookie: adminCookie });
+  assert.equal(notificationJobs.response.status, 200);
   const adminHealth = await api("/admin/health", { cookie: adminCookie });
   assert.equal(adminHealth.response.status, 200);
   assert.equal(adminHealth.body.ok, true);
   const auditLogs = await api("/admin/audit-logs?limit=10", { cookie: adminCookie });
   assert.equal(auditLogs.response.status, 200);
   assert.equal(auditLogs.body.logs.length > 0, true);
-  const adminReports = await api("/admin/reports", { cookie: adminCookie });
+  const filteredAuditLogs = await api("/admin/audit-logs?action=announcement.created&limit=10", { cookie: adminCookie });
+  assert.equal(filteredAuditLogs.response.status, 200);
+  assert.equal(filteredAuditLogs.body.logs.some((log) => log.targetId === customerAnnouncement.body.announcement.id), true);
+  const adminReports = await api(`/admin/reports?status=pending&departmentId=${departmentId}&limit=5`, { cookie: adminCookie });
   assert.equal(adminReports.response.status, 200);
   assert.equal(adminReports.body.reports.some((report) => report.id === customerReport.body.report.id), true);
   const reportStatus = await api(`/admin/reports/${customerReport.body.report.id}/status`, {
@@ -257,15 +384,24 @@ if (adminEmail && adminPassword) {
       "agent department assignment",
       "session listing",
       "notification preferences",
+      "push subscription lifecycle",
+      "announcement lifecycle",
+      "file storage guard",
       "registration note handoff",
       "customer reports",
+      "filtered reports",
       "first message assignment",
+      "message attachments",
+      "conversation filters",
       "customer role boundaries",
       "agent role boundaries",
+      "agent announcements",
       "agent notification processing denied",
       "notification dry run",
+      "notification job filters",
       "admin health",
       "audit logs",
+      "filtered audit logs",
       "admin reports"
     );
 }
@@ -300,6 +436,20 @@ async function seedAcceptanceAdmin(email, passwordValue) {
     [crypto.randomUUID(), email, await hashPassword(passwordValue)]
   );
   return email;
+}
+
+async function seedAcceptanceFile(ownerId, suffix) {
+  const databaseUrl = process.env.TIDB_DATABASE_URL ?? readDevVar("TIDB_DATABASE_URL");
+  if (!databaseUrl) return null;
+
+  const id = crypto.randomUUID();
+  const connection = connect({ url: databaseUrl });
+  await connection.execute(
+    `INSERT INTO files (id, owner_id, storage_key, sha256_hash, mime_type, original_filename, size_bytes, kind, metadata_stripped)
+      VALUES (?, ?, ?, ?, 'image/png', 'acceptance.png', 8, 'image', 1)`,
+    [id, ownerId, `acceptance/${id}.png`, crypto.randomUUID().replaceAll("-", "").slice(0, 64)]
+  );
+  return id;
 }
 
 function readDevVar(key) {

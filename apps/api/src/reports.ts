@@ -3,9 +3,10 @@ import {
   createReportRequestSchema,
   reportResponseSchema,
   reportsResponseSchema,
+  reportsQuerySchema,
   updateReportStatusRequestSchema
 } from "@evbus/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { requireUser } from "./auth";
 import { getOrCreateCustomerConversation } from "./conversations";
 import { getDb } from "./db";
@@ -20,6 +21,11 @@ export async function handleReports(request: Request, env: Env, pathname: string
     }
 
     const db = getDb(env);
+    const filters = [eq(reports.customerId, actor.id)];
+    const queryParams = reportsQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
+    if (queryParams.status) filters.push(eq(reports.status, queryParams.status));
+    if (queryParams.departmentId) filters.push(eq(reports.departmentId, queryParams.departmentId));
+    if (queryParams.cursor) filters.push(lt(reports.createdAt, new Date(queryParams.cursor)));
     const rows = await db
       .select({
         id: reports.id,
@@ -38,9 +44,9 @@ export async function handleReports(request: Request, env: Env, pathname: string
       })
       .from(reports)
       .innerJoin(users, eq(reports.customerId, users.id))
-      .where(eq(reports.customerId, actor.id))
+      .where(and(...filters))
       .orderBy(desc(reports.createdAt))
-      .limit(100);
+      .limit(queryParams.limit);
 
     return json(reportsResponseSchema.parse({ reports: rows.map(serializeReport) }));
   }
@@ -65,6 +71,12 @@ export async function handleReports(request: Request, env: Env, pathname: string
     }
 
     const conversation = await getOrCreateCustomerConversation(env, actor.id);
+    if (input.departmentId && !conversation.departmentId) {
+      await db
+        .update(conversations)
+        .set({ departmentId: input.departmentId, updatedAt: new Date() })
+        .where(eq(conversations.id, conversation.id));
+    }
     const id = crypto.randomUUID();
     await db.insert(reports).values({
       id,
@@ -93,6 +105,11 @@ export async function handleReports(request: Request, env: Env, pathname: string
     }
 
     const db = getDb(env);
+    const filters = [];
+    const queryParams = reportsQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
+    if (queryParams.status) filters.push(eq(reports.status, queryParams.status));
+    if (queryParams.departmentId) filters.push(eq(reports.departmentId, queryParams.departmentId));
+    if (queryParams.cursor) filters.push(lt(reports.createdAt, new Date(queryParams.cursor)));
     let query = db
       .select({
         id: reports.id,
@@ -115,10 +132,11 @@ export async function handleReports(request: Request, env: Env, pathname: string
       .$dynamic();
 
     if (actor.role === "agent") {
-      query = query.where(eq(conversations.assignedAgentId, actor.id));
+      filters.push(eq(conversations.assignedAgentId, actor.id));
     }
 
-    const rows = await query.orderBy(desc(reports.createdAt)).limit(100);
+    if (filters.length) query = query.where(and(...filters));
+    const rows = await query.orderBy(desc(reports.createdAt)).limit(queryParams.limit);
     return json(reportsResponseSchema.parse({ reports: rows.map(serializeReport) }));
   }
 

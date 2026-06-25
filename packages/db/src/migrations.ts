@@ -11,12 +11,14 @@ const statements = [
     status VARCHAR(32) NOT NULL,
     registration_note TEXT,
     email_notifications_enabled INT NOT NULL DEFAULT 1,
+    push_notifications_enabled INT NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY users_email_unique (email)
   )`,
   `ALTER TABLE users ADD COLUMN registration_note TEXT`,
   `ALTER TABLE users ADD COLUMN email_notifications_enabled INT NOT NULL DEFAULT 1`,
+  `ALTER TABLE users ADD COLUMN push_notifications_enabled INT NOT NULL DEFAULT 1`,
   `CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
@@ -98,6 +100,7 @@ const statements = [
     id VARCHAR(36) PRIMARY KEY,
     customer_id VARCHAR(36) NOT NULL,
     assigned_agent_id VARCHAR(36),
+    department_id VARCHAR(36),
     status VARCHAR(32) NOT NULL,
     last_message_at TIMESTAMP NULL,
     last_customer_message_at TIMESTAMP NULL,
@@ -113,13 +116,16 @@ const statements = [
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY conversations_customer_id_unique (customer_id),
     KEY conversations_assigned_agent_id_idx (assigned_agent_id),
+    KEY conversations_department_id_idx (department_id),
     KEY conversations_status_last_message_idx (status, last_message_at),
     KEY conversations_waiting_idx (status, last_customer_message_at, last_agent_message_at),
     CONSTRAINT conversations_customer_id_fk FOREIGN KEY (customer_id) REFERENCES users(id),
     CONSTRAINT conversations_assigned_agent_id_fk FOREIGN KEY (assigned_agent_id) REFERENCES users(id),
+    CONSTRAINT conversations_department_id_fk FOREIGN KEY (department_id) REFERENCES departments(id),
     CONSTRAINT conversations_closed_by_fk FOREIGN KEY (closed_by) REFERENCES users(id)
   )`,
   `ALTER TABLE conversations ADD COLUMN last_message_preview VARCHAR(180)`,
+  `ALTER TABLE conversations ADD COLUMN department_id VARCHAR(36)`,
   `ALTER TABLE conversations ADD COLUMN last_customer_message_at TIMESTAMP NULL`,
   `ALTER TABLE conversations ADD COLUMN last_agent_message_at TIMESTAMP NULL`,
   `ALTER TABLE conversations ADD COLUMN customer_unread_count INT NOT NULL DEFAULT 0`,
@@ -128,6 +134,7 @@ const statements = [
   `ALTER TABLE conversations ADD COLUMN closed_by VARCHAR(36)`,
   `ALTER TABLE conversations ADD COLUMN closing_note TEXT`,
   `ALTER TABLE conversations ADD COLUMN registration_note TEXT`,
+  `ALTER TABLE conversations ADD KEY conversations_department_id_idx (department_id)`,
   `ALTER TABLE conversations ADD KEY conversations_waiting_idx (status, last_customer_message_at, last_agent_message_at)`,
   `CREATE TABLE IF NOT EXISTS reports (
     id VARCHAR(36) PRIMARY KEY,
@@ -151,16 +158,45 @@ const statements = [
     CONSTRAINT reports_department_id_fk FOREIGN KEY (department_id) REFERENCES departments(id),
     CONSTRAINT reports_resolved_by_fk FOREIGN KEY (resolved_by) REFERENCES users(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS files (
+    id VARCHAR(36) PRIMARY KEY,
+    owner_id VARCHAR(36) NOT NULL,
+    storage_key VARCHAR(512) NOT NULL,
+    sha256_hash VARCHAR(64) NOT NULL,
+    mime_type VARCHAR(128) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    size_bytes INT NOT NULL,
+    kind VARCHAR(32) NOT NULL,
+    metadata_stripped INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY files_sha256_hash_unique (sha256_hash),
+    KEY files_owner_id_idx (owner_id),
+    KEY files_storage_key_idx (storage_key),
+    CONSTRAINT files_owner_id_fk FOREIGN KEY (owner_id) REFERENCES users(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS messages (
     id VARCHAR(36) PRIMARY KEY,
     conversation_id VARCHAR(36) NOT NULL,
     sender_id VARCHAR(36) NOT NULL,
     body TEXT NOT NULL,
+    read_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY messages_conversation_created_idx (conversation_id, created_at),
     KEY messages_sender_id_idx (sender_id),
     CONSTRAINT messages_conversation_id_fk FOREIGN KEY (conversation_id) REFERENCES conversations(id),
     CONSTRAINT messages_sender_id_fk FOREIGN KEY (sender_id) REFERENCES users(id)
+  )`,
+  `ALTER TABLE messages ADD COLUMN read_at TIMESTAMP NULL`,
+  `CREATE TABLE IF NOT EXISTS message_attachments (
+    id VARCHAR(36) PRIMARY KEY,
+    message_id VARCHAR(36) NOT NULL,
+    file_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY message_attachments_message_file_unique (message_id, file_id),
+    KEY message_attachments_message_id_idx (message_id),
+    KEY message_attachments_file_id_idx (file_id),
+    CONSTRAINT message_attachments_message_id_fk FOREIGN KEY (message_id) REFERENCES messages(id),
+    CONSTRAINT message_attachments_file_id_fk FOREIGN KEY (file_id) REFERENCES files(id)
   )`,
   `UPDATE conversations c
     SET last_message_preview = (
@@ -228,7 +264,60 @@ const statements = [
     KEY notification_jobs_recipient_id_idx (recipient_id),
     CONSTRAINT notification_jobs_recipient_id_fk FOREIGN KEY (recipient_id) REFERENCES users(id)
   )`,
-  `ALTER TABLE notification_jobs ADD COLUMN provider VARCHAR(32)`
+  `ALTER TABLE notification_jobs ADD COLUMN provider VARCHAR(32)`,
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    endpoint VARCHAR(2048) NOT NULL,
+    endpoint_hash VARCHAR(64) NOT NULL,
+    p256dh VARCHAR(512) NOT NULL,
+    auth VARCHAR(512) NOT NULL,
+    user_agent VARCHAR(512),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY push_subscriptions_endpoint_hash_unique (endpoint_hash),
+    KEY push_subscriptions_user_id_idx (user_id),
+    CONSTRAINT push_subscriptions_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS announcements (
+    id VARCHAR(36) PRIMARY KEY,
+    author_id VARCHAR(36) NOT NULL,
+    audience VARCHAR(32) NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    body TEXT NOT NULL,
+    image_file_id VARCHAR(36),
+    show_public INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY announcements_audience_created_idx (audience, created_at),
+    KEY announcements_expires_at_idx (expires_at),
+    KEY announcements_author_id_idx (author_id),
+    CONSTRAINT announcements_author_id_fk FOREIGN KEY (author_id) REFERENCES users(id),
+    CONSTRAINT announcements_image_file_id_fk FOREIGN KEY (image_file_id) REFERENCES files(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS announcement_reactions (
+    id VARCHAR(36) PRIMARY KEY,
+    announcement_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    reaction VARCHAR(32) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY announcement_reactions_announcement_user_unique (announcement_id, user_id),
+    KEY announcement_reactions_user_id_idx (user_id),
+    CONSTRAINT announcement_reactions_announcement_id_fk FOREIGN KEY (announcement_id) REFERENCES announcements(id),
+    CONSTRAINT announcement_reactions_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS announcement_comments (
+    id VARCHAR(36) PRIMARY KEY,
+    announcement_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    body TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY announcement_comments_announcement_created_idx (announcement_id, created_at),
+    KEY announcement_comments_user_id_idx (user_id),
+    CONSTRAINT announcement_comments_announcement_id_fk FOREIGN KEY (announcement_id) REFERENCES announcements(id),
+    CONSTRAINT announcement_comments_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id)
+  )`
 ];
 
 export async function runMigrations(connection: Connection<Config>) {

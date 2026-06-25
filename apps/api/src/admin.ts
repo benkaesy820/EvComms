@@ -2,11 +2,13 @@ import { agentDepartments, auditLogs, conversations, departments, notificationJo
 import {
   authResponseSchema,
   adminHealthResponseSchema,
+  auditLogsQuerySchema,
   auditLogsResponseSchema,
   createDepartmentRequestSchema,
   departmentsResponseSchema,
   createAgentRequestSchema,
   notificationJobsResponseSchema,
+  notificationJobsQuerySchema,
   pendingUsersResponseSchema,
   processNotificationJobsRequestSchema,
   processNotificationJobsResponseSchema,
@@ -15,7 +17,7 @@ import {
   updateAgentDepartmentsRequestSchema,
   usersResponseSchema
 } from "@evbus/shared";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import type { Env } from "./index";
 import { HttpError, json, readJson } from "./http";
@@ -66,8 +68,12 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
 
   if (pathname === "/admin/notification-jobs" && request.method === "GET") {
     await requireSuperAdmin(request, env);
+    const queryParams = notificationJobsQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
+    const filters = [];
+    if (queryParams.status) filters.push(eq(notificationJobs.status, queryParams.status));
+    if (queryParams.cursor) filters.push(lt(notificationJobs.createdAt, new Date(queryParams.cursor)));
     const db = getDb(env);
-    const jobs = await db
+    let query = db
       .select({
         id: notificationJobs.id,
         recipientId: notificationJobs.recipientId,
@@ -86,8 +92,9 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
       })
       .from(notificationJobs)
       .leftJoin(users, eq(notificationJobs.recipientId, users.id))
-      .orderBy(desc(notificationJobs.createdAt))
-      .limit(25);
+      .$dynamic();
+    if (filters.length) query = query.where(and(...filters));
+    const jobs = await query.orderBy(desc(notificationJobs.createdAt)).limit(queryParams.limit);
 
     return json(
       notificationJobsResponseSchema.parse({
@@ -104,18 +111,13 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
 
   if (pathname === "/admin/audit-logs" && request.method === "GET") {
     await requireSuperAdmin(request, env);
-    const url = new URL(request.url);
-    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? 50)));
+    const queryParams = auditLogsQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
     const filters = [];
-    const action = url.searchParams.get("action");
-    const actorId = url.searchParams.get("actorId");
-    const targetId = url.searchParams.get("targetId");
-    const targetType = url.searchParams.get("targetType");
-
-    if (action) filters.push(eq(auditLogs.action, action));
-    if (actorId) filters.push(eq(auditLogs.actorId, actorId));
-    if (targetId) filters.push(eq(auditLogs.targetId, targetId));
-    if (targetType) filters.push(eq(auditLogs.targetType, targetType));
+    if (queryParams.action) filters.push(eq(auditLogs.action, queryParams.action));
+    if (queryParams.actorId) filters.push(eq(auditLogs.actorId, queryParams.actorId));
+    if (queryParams.targetId) filters.push(eq(auditLogs.targetId, queryParams.targetId));
+    if (queryParams.targetType) filters.push(eq(auditLogs.targetType, queryParams.targetType));
+    if (queryParams.cursor) filters.push(lt(auditLogs.createdAt, new Date(queryParams.cursor)));
 
     const db = getDb(env);
     let query = db
@@ -134,7 +136,7 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
 
     if (filters.length) query = query.where(and(...filters));
 
-    const rows = await query.orderBy(desc(auditLogs.createdAt)).limit(limit);
+    const rows = await query.orderBy(desc(auditLogs.createdAt)).limit(queryParams.limit);
     const actorIds = [...new Set(rows.map((row) => row.actorId).filter((id): id is string => Boolean(id)))];
     const actors = actorIds.length
       ? await db

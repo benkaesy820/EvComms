@@ -36,9 +36,14 @@ describe("shared validation contracts", () => {
   });
 
   test("messages are trimmed, bounded, and never blank", () => {
-    assert.deepEqual(createMessageRequestSchema.parse({ body: "  hello  " }), { body: "hello" });
+    assert.deepEqual(createMessageRequestSchema.parse({ body: "  hello  " }), { body: "hello", attachmentIds: [] });
+    assert.deepEqual(createMessageRequestSchema.parse({ attachmentIds: ["file-1"] }), {
+      body: "",
+      attachmentIds: ["file-1"]
+    });
     assert.equal(createMessageRequestSchema.safeParse({ body: "   " }).success, false);
     assert.equal(createMessageRequestSchema.safeParse({ body: "x".repeat(5001) }).success, false);
+    assert.equal(createMessageRequestSchema.safeParse({ attachmentIds: Array.from({ length: 6 }, (_, index) => `file-${index}`) }).success, false);
   });
 
   test("notification processing defaults stay small and bounded", () => {
@@ -56,7 +61,12 @@ describe("shared validation contracts", () => {
       subsidiaries: ["Accra Office", "Kumasi Office"],
       departments: ["General Support", "Billing"],
       maxActiveConversationsPerAgent: 20,
-      emailNotificationDebounceMinutes: 5
+      maxActiveSessionsPerUser: 2,
+      maxImageSizeMb: 5,
+      maxDocumentSizeMb: 10,
+      dailyUploadLimit: 50,
+      emailNotificationDebounceMinutes: 5,
+      pushNotificationsEnabled: false
     });
 
     assert.equal(settings.maxActiveConversationsPerAgent, 20);
