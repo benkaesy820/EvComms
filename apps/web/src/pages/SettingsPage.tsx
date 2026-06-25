@@ -20,7 +20,7 @@ export function SettingsPage({ onRefresh, onSubmit, settings }: SettingsPageProp
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-primary" />
+              <Settings className="h-4 w-4 text-primary" />
               Settings
             </CardTitle>
             <CardDescription>Brand, routing labels, capacity, and notification timing.</CardDescription>
@@ -32,8 +32,8 @@ export function SettingsPage({ onRefresh, onSubmit, settings }: SettingsPageProp
         </div>
       </CardHeader>
       {settings ? (
-        <CardContent className="min-h-0 overflow-auto p-3">
-          <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
+        <CardContent className="min-h-0 overflow-auto p-2.5">
+          <form className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3" onSubmit={onSubmit}>
             <Field label="Site name">
               <Input name="siteName" defaultValue={settings.siteName} required maxLength={80} />
             </Field>
@@ -72,6 +72,46 @@ export function SettingsPage({ onRefresh, onSubmit, settings }: SettingsPageProp
                 required
               />
             </Field>
+            <Field label="Max sessions per user">
+              <Input
+                name="maxActiveSessionsPerUser"
+                type="number"
+                min={1}
+                max={10}
+                defaultValue={settings.maxActiveSessionsPerUser}
+                required
+              />
+            </Field>
+            <Field label="Max image MB">
+              <Input
+                name="maxImageSizeMb"
+                type="number"
+                min={1}
+                max={25}
+                defaultValue={settings.maxImageSizeMb}
+                required
+              />
+            </Field>
+            <Field label="Max document MB">
+              <Input
+                name="maxDocumentSizeMb"
+                type="number"
+                min={1}
+                max={50}
+                defaultValue={settings.maxDocumentSizeMb}
+                required
+              />
+            </Field>
+            <Field label="Daily uploads">
+              <Input
+                name="dailyUploadLimit"
+                type="number"
+                min={1}
+                max={500}
+                defaultValue={settings.dailyUploadLimit}
+                required
+              />
+            </Field>
             <Field label="Notification debounce minutes">
               <Input
                 name="emailNotificationDebounceMinutes"
@@ -82,7 +122,16 @@ export function SettingsPage({ onRefresh, onSubmit, settings }: SettingsPageProp
                 required
               />
             </Field>
-            <Button type="submit" className="md:col-span-2">Save Settings</Button>
+            <label className="flex min-h-9 items-center justify-between gap-3 rounded-md border border-border bg-background px-3 text-sm font-semibold text-foreground">
+              <span>Push notifications</span>
+              <input
+                name="pushNotificationsEnabled"
+                type="checkbox"
+                defaultChecked={settings.pushNotificationsEnabled}
+                className="h-4 w-4 accent-primary"
+              />
+            </label>
+            <Button type="submit" className="md:col-span-2 xl:col-span-3">Save Settings</Button>
           </form>
         </CardContent>
       ) : null}

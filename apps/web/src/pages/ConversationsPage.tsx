@@ -1,6 +1,6 @@
 import { type FormEvent, useMemo, useState } from "react";
 import type { Conversation, ConversationSummary, Message, PublicUser } from "@evbus/shared";
-import { MoreVertical, RefreshCw, Search, Send } from "lucide-react";
+import { FileText, MoreVertical, RefreshCw, Search, Send } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -50,28 +50,38 @@ export function ConversationsPage({
         .includes(normalizedQuery)
     );
   }, [conversations, query]);
+  const openCount = useMemo(() => conversations.filter((item) => item.status === "open").length, [conversations]);
+  const waitingCount = useMemo(() => conversations.filter((item) => getWaitingSince(item)).length, [conversations]);
+  const unassignedCount = useMemo(() => conversations.filter((item) => !item.assignedAgentId).length, [conversations]);
 
   return (
     <div
       className={
         showInbox
-          ? "grid h-full min-h-0 overflow-hidden rounded-md border border-border bg-white shadow-sm md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]"
+          ? "grid h-full min-h-0 grid-rows-[minmax(210px,42svh)_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-white shadow-sm md:grid-cols-[292px_minmax(0,1fr)] md:grid-rows-none xl:grid-cols-[310px_minmax(0,1fr)]"
           : "grid h-full min-h-0 overflow-hidden rounded-md border border-border bg-white shadow-sm"
       }
     >
         {showInbox ? (
           <aside className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] border-b border-border bg-[#f7faf7] md:border-b-0 md:border-r">
-            <div className="flex h-12 items-center justify-between border-b border-border px-3">
-              <div>
-                <h2 className="text-sm font-semibold">Chats</h2>
-                <p className="text-xs text-muted-foreground">
-                  {filteredConversations.length}
-                  {query ? ` of ${conversations.length}` : ""} conversations
-                </p>
+            <div className="grid gap-2 border-b border-border px-3 py-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold">Chats</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {filteredConversations.length}
+                    {query ? ` of ${conversations.length}` : ""} conversations
+                  </p>
+                </div>
+                <Button type="button" variant="ghost" size="icon" onClick={onRefresh} aria-label="Refresh conversations">
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
               </div>
-              <Button type="button" variant="ghost" size="icon" onClick={onRefresh} aria-label="Refresh conversations">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
+              <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                <StatusChip label="Open" value={openCount} />
+                <StatusChip label="Waiting" value={waitingCount} tone="warning" />
+                <StatusChip label="Free" value={unassignedCount} />
+              </div>
             </div>
 
             <div className="border-b border-border p-2">
@@ -96,7 +106,7 @@ export function ConversationsPage({
                 filteredConversations.map((item) => (
                   <button
                     type="button"
-                    className="grid w-full gap-1 border-b border-border/70 px-3 py-2.5 text-left text-sm transition data-[active=true]:bg-[#e5f3ef] data-[active=false]:hover:bg-white"
+                    className="grid w-full gap-1 border-b border-border/70 px-3 py-2 text-left text-sm transition data-[active=true]:bg-[#dff1ed] data-[active=false]:hover:bg-white"
                     data-active={item.id === selectedConversationId}
                     key={item.id}
                     onClick={() => onSelectConversation(item.id)}
@@ -112,7 +122,7 @@ export function ConversationsPage({
                         <StatusDot status={item.status} />
                       </span>
                     </span>
-                    <span className="truncate text-muted-foreground">
+                    <span className="truncate text-[13px] text-muted-foreground">
                       {item.lastMessagePreview ?? item.customerEmail}
                     </span>
                     <ConversationMeta item={item} />
@@ -123,10 +133,10 @@ export function ConversationsPage({
           </aside>
         ) : null}
 
-        <section className="grid min-h-0 min-w-0 grid-rows-[52px_minmax(0,1fr)_auto] bg-[#efeae2]">
+        <section className="grid min-h-0 min-w-0 grid-rows-[50px_minmax(0,1fr)_auto] bg-[#efeae2]">
           <ChatHeader conversation={selectedConversation} isCustomer={user.role === "customer"} />
 
-          <div className="grid min-h-0 content-start gap-1.5 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.38),transparent_26%)] p-3">
+          <div className="grid min-h-0 content-start gap-1.5 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.38),transparent_26%)] p-2.5">
             {messages.length === 0 ? (
               <p className="self-center justify-self-center rounded-full bg-white/70 px-4 py-2 text-sm text-muted-foreground">
                 No messages yet.
@@ -138,9 +148,9 @@ export function ConversationsPage({
             )}
           </div>
 
-          <div className="shrink-0 border-t border-border bg-[#f7f3ed] p-2">
+          <div className="shrink-0 border-t border-border bg-[#f7f3ed] p-1.5">
             {selectedConversation ? (
-              <div className="mb-2 grid gap-2 lg:grid-cols-[minmax(220px,0.7fr)_minmax(260px,1fr)]">
+              <div className="mb-1.5 grid gap-1.5 lg:grid-cols-[minmax(220px,0.7fr)_minmax(260px,1fr)]">
                 {isClosed ? (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-800 lg:col-span-2">
                     <span>This conversation is closed.</span>
@@ -151,7 +161,7 @@ export function ConversationsPage({
                 ) : null}
 
                 {canReassign ? (
-                  <form className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onReassign}>
+                  <form className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-1.5" onSubmit={onReassign}>
                     <select
                       name="agentId"
                       className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
@@ -170,7 +180,7 @@ export function ConversationsPage({
                 ) : null}
 
                 {canClose ? (
-                  <form className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onCloseConversation}>
+                  <form className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-1.5" onSubmit={onCloseConversation}>
                     <Input name="note" className="h-9" placeholder="Closing note" required maxLength={1000} />
                     <Button type="submit" size="sm">Close</Button>
                   </form>
@@ -178,7 +188,7 @@ export function ConversationsPage({
               </div>
             ) : null}
 
-            <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={onSendMessage}>
+            <form className="grid grid-cols-[minmax(0,1fr)_auto] gap-1.5" onSubmit={onSendMessage}>
               <Input
                 name="body"
                 className="h-10 rounded-full bg-white px-4"
@@ -219,8 +229,8 @@ function ChatHeader({
           {title.slice(0, 1).toUpperCase()}
         </div>
         <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">
+          <h2 className="truncate text-sm font-semibold">{title}</h2>
+          <p className="truncate text-xs text-muted-foreground">
             {conversation?.status === "closed" ? "Closed conversation" : "Available support thread"}
           </p>
         </div>
@@ -233,9 +243,11 @@ function ChatHeader({
 }
 
 function MessageBubble({ isOwn, item }: { isOwn: boolean; item: Message }) {
+  const attachments = item.attachments ?? [];
+
   return (
     <article
-      className="grid w-[min(78%,620px)] gap-1 rounded-lg px-3 py-2 text-sm shadow-sm data-[own=false]:bg-white data-[own=true]:justify-self-end data-[own=true]:bg-[#d9fdd3]"
+      className="grid w-[min(76%,620px)] gap-1 rounded-md px-3 py-2 text-sm shadow-sm data-[own=false]:bg-white data-[own=true]:justify-self-end data-[own=true]:bg-[#d9fdd3] max-sm:w-[92%]"
       data-own={isOwn}
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
@@ -244,8 +256,34 @@ function MessageBubble({ isOwn, item }: { isOwn: boolean; item: Message }) {
           {formatMessageTime(item.createdAt)}
         </time>
       </div>
-      <p className="whitespace-pre-wrap leading-6 [overflow-wrap:anywhere]">{item.body}</p>
+      {item.body ? <p className="whitespace-pre-wrap leading-5 [overflow-wrap:anywhere]">{item.body}</p> : null}
+      {attachments.length ? (
+        <div className="grid gap-1">
+          {attachments.map((attachment) => (
+            <div
+              className="flex min-w-0 items-center gap-2 rounded-md border border-black/5 bg-white/55 px-2 py-1.5 text-xs"
+              key={attachment.id}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="truncate">{attachment.originalFilename}</span>
+              <span className="shrink-0 text-muted-foreground">{formatBytes(attachment.sizeBytes)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </article>
+  );
+}
+
+function StatusChip({ label, tone, value }: { label: string; tone?: "warning"; value: number }) {
+  return (
+    <span
+      className="flex min-w-0 items-center justify-between gap-1 rounded-md border border-border bg-white px-2 py-1 text-muted-foreground data-[tone=warning]:border-amber-200 data-[tone=warning]:bg-amber-50 data-[tone=warning]:text-amber-800"
+      data-tone={tone}
+    >
+      <span className="truncate">{label}</span>
+      <strong className="text-foreground">{value}</strong>
+    </span>
   );
 }
 
@@ -254,6 +292,12 @@ function formatMessageTime(value: string) {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function StatusDot({ status }: { status: ConversationSummary["status"] }) {

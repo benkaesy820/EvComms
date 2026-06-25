@@ -469,7 +469,12 @@ export function App() {
         subsidiaries: splitList(form.get("subsidiaries")),
         departments: splitList(form.get("departments")),
         maxActiveConversationsPerAgent: Number(form.get("maxActiveConversationsPerAgent")),
-        emailNotificationDebounceMinutes: Number(form.get("emailNotificationDebounceMinutes"))
+        maxActiveSessionsPerUser: Number(form.get("maxActiveSessionsPerUser")),
+        maxImageSizeMb: Number(form.get("maxImageSizeMb")),
+        maxDocumentSizeMb: Number(form.get("maxDocumentSizeMb")),
+        dailyUploadLimit: Number(form.get("dailyUploadLimit")),
+        emailNotificationDebounceMinutes: Number(form.get("emailNotificationDebounceMinutes")),
+        pushNotificationsEnabled: form.get("pushNotificationsEnabled") === "on"
       });
       setSettings(nextSettings);
       setMessage("Settings updated.");

@@ -17,7 +17,7 @@ export function ApprovalsPage({ onApprove, onRefresh, onReject, pendingUsers }: 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <UserCheck className="h-5 w-5 text-primary" />
+              <UserCheck className="h-4 w-4 text-primary" />
               Pending Customers
             </CardTitle>
             <CardDescription>Approve or reject customer access requests.</CardDescription>
@@ -28,8 +28,8 @@ export function ApprovalsPage({ onApprove, onRefresh, onReject, pendingUsers }: 
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="grid min-h-0 gap-2 overflow-auto p-3">
-        <div className="rounded-md border border-border bg-[#f7faf7] px-3 py-2 text-sm">
+      <CardContent className="grid min-h-0 content-start gap-2 overflow-auto p-2.5">
+        <div className="rounded-md border border-border bg-[#f7faf7] px-3 py-1.5 text-sm">
           <strong>{pendingUsers.length}</strong>
           <span className="ml-1 text-muted-foreground">waiting for review</span>
         </div>
@@ -38,13 +38,13 @@ export function ApprovalsPage({ onApprove, onRefresh, onReject, pendingUsers }: 
         ) : (
           pendingUsers.map((pendingUser) => (
             <div
-              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background p-3"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2"
               key={pendingUser.id}
             >
               <div className="min-w-0">
                 <strong>{pendingUser.name}</strong>
-                <p className="truncate text-sm text-muted-foreground">{pendingUser.email}</p>
-                <p className="text-sm text-muted-foreground">{pendingUser.phone}</p>
+                <p className="truncate text-xs text-muted-foreground">{pendingUser.email}</p>
+                <p className="text-xs text-muted-foreground">{pendingUser.phone}</p>
               </div>
               <div className="flex gap-2">
                 <Button type="button" size="sm" onClick={() => onApprove(pendingUser.id)}>

@@ -59,7 +59,7 @@ export function LandingPage({
             <Badge className="border-teal-200/30 bg-teal-200/15 text-teal-50 hover:bg-teal-200/15">
               Human support for customers
             </Badge>
-            <h1 className="mt-5 text-5xl font-semibold leading-[0.95] tracking-normal md:text-7xl">
+            <h1 className="mt-5 max-w-2xl text-4xl font-semibold leading-[1] tracking-normal sm:text-5xl lg:text-6xl xl:text-7xl">
               Support that feels direct, private, and accountable.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-white/76">{tagline}</p>
@@ -137,7 +137,7 @@ function PreviewLine({
   title: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-background p-4">
+    <div className="rounded-md border border-border bg-background p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
         {icon}
         {title}
