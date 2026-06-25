@@ -145,7 +145,8 @@ export async function processNotificationJobs(
           id: users.id,
           name: users.name,
           email: users.email,
-          status: users.status
+          status: users.status,
+          emailNotificationsEnabled: users.emailNotificationsEnabled
         })
         .from(users)
         .where(inArray(users.id, recipientIds))
@@ -161,6 +162,26 @@ export async function processNotificationJobs(
 
     if (!recipient || recipient.status === "rejected" || recipient.status === "suspended") {
       const error = "Recipient is unavailable for notification delivery.";
+      if (options.dryRun) {
+        results.push({ id: job.id, status: "dry_run", error });
+        continue;
+      }
+
+      await db
+        .update(notificationJobs)
+        .set({
+          status: "skipped",
+          attempts: sql`${notificationJobs.attempts} + 1`,
+          lastError: error,
+          updatedAt: now
+        })
+        .where(eq(notificationJobs.id, job.id));
+      results.push({ id: job.id, status: "skipped", error });
+      continue;
+    }
+
+    if (job.type === "conversation.message" && recipient.emailNotificationsEnabled === 0) {
+      const error = "Recipient disabled message email notifications.";
       if (options.dryRun) {
         results.push({ id: job.id, status: "dry_run", error });
         continue;

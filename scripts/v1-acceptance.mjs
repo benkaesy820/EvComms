@@ -147,8 +147,34 @@ if (adminEmail && adminPassword) {
 
   assert.equal((await api("/admin/customers", { cookie: customerLogin.cookie })).response.status, 403);
   assert.equal((await api("/admin/conversations", { cookie: customerLogin.cookie })).response.status, 403);
+  const customerSessions = await api("/auth/sessions", { cookie: customerLogin.cookie });
+  assert.equal(customerSessions.response.status, 200);
+  assert.equal(customerSessions.body.sessions.some((session) => session.current), true);
+  const preferences = await api("/account/preferences", { cookie: customerLogin.cookie });
+  assert.equal(preferences.response.status, 200);
+  assert.equal(preferences.body.preferences.emailNotificationsEnabled, true);
+  const preferencesUpdate = await api("/account/preferences", {
+    method: "PUT",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({ emailNotificationsEnabled: false })
+  });
+  assert.equal(preferencesUpdate.response.status, 200);
+  assert.equal(preferencesUpdate.body.preferences.emailNotificationsEnabled, false);
   const customerConversation = await api("/conversations/me", { cookie: customerLogin.cookie });
   assert.equal(customerConversation.response.status, 200);
+  const customerMessage = await api(`/conversations/${customerConversation.body.conversation.id}/messages`, {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({ body: "Hello from acceptance." })
+  });
+  assert.equal(customerMessage.response.status, 201);
+  const assignedConversations = await api("/admin/conversations", { cookie: adminCookie });
+  assert.equal(assignedConversations.response.status, 200);
+  assert.notEqual(
+    assignedConversations.body.conversations.find((conversation) => conversation.id === customerConversation.body.conversation.id)
+      ?.assignedAgentId,
+    null
+  );
 
   const agentLogin = await login(agentEmail, password);
   assert.equal(agentLogin.response.status, 200);
@@ -163,7 +189,8 @@ if (adminEmail && adminPassword) {
     body: JSON.stringify({ dryRun: true, limit: 1 })
   })).response.status, 403);
   assert.equal((await api("/conversations/me", { cookie: agentLogin.cookie })).response.status, 403);
-  assert.equal((await api("/admin/conversations", { cookie: agentLogin.cookie })).response.status, 200);
+  const agentConversations = await api("/admin/conversations", { cookie: agentLogin.cookie });
+  assert.equal(agentConversations.response.status, 200);
 
   const notificationDryRun = await api("/admin/notification-jobs/process", {
     method: "POST",
@@ -172,15 +199,26 @@ if (adminEmail && adminPassword) {
   });
   assert.equal(notificationDryRun.response.status, 200);
   assert.equal(notificationDryRun.body.dryRun, true);
+  const adminHealth = await api("/admin/health", { cookie: adminCookie });
+  assert.equal(adminHealth.response.status, 200);
+  assert.equal(adminHealth.body.ok, true);
+  const auditLogs = await api("/admin/audit-logs?limit=10", { cookie: adminCookie });
+  assert.equal(auditLogs.response.status, 200);
+  assert.equal(auditLogs.body.logs.length > 0, true);
 
   checked.push(
     "super admin login",
       "super admin approval",
       "agent creation",
+      "session listing",
+      "notification preferences",
+      "first message assignment",
       "customer role boundaries",
       "agent role boundaries",
       "agent notification processing denied",
-      "notification dry run"
+      "notification dry run",
+      "admin health",
+      "audit logs"
     );
 }
 

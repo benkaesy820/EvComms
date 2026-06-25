@@ -1,6 +1,8 @@
 import { auditLogs, conversations, notificationJobs, sessions, users } from "@evbus/db";
 import {
   authResponseSchema,
+  adminHealthResponseSchema,
+  auditLogsResponseSchema,
   createAgentRequestSchema,
   notificationJobsResponseSchema,
   pendingUsersResponseSchema,
@@ -10,7 +12,7 @@ import {
   rejectUserRequestSchema,
   usersResponseSchema
 } from "@evbus/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import type { Env } from "./index";
 import { HttpError, json, readJson } from "./http";
@@ -66,15 +68,20 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
       .select({
         id: notificationJobs.id,
         recipientId: notificationJobs.recipientId,
+        recipientEmail: users.email,
         channel: notificationJobs.channel,
         type: notificationJobs.type,
         status: notificationJobs.status,
         dedupeKey: notificationJobs.dedupeKey,
         attempts: notificationJobs.attempts,
         nextAttemptAt: notificationJobs.nextAttemptAt,
-        createdAt: notificationJobs.createdAt
+        sentAt: notificationJobs.sentAt,
+        lastError: notificationJobs.lastError,
+        createdAt: notificationJobs.createdAt,
+        updatedAt: notificationJobs.updatedAt
       })
       .from(notificationJobs)
+      .leftJoin(users, eq(notificationJobs.recipientId, users.id))
       .orderBy(desc(notificationJobs.createdAt))
       .limit(25);
 
@@ -83,8 +90,116 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
         jobs: jobs.map((job) => ({
           ...job,
           nextAttemptAt: job.nextAttemptAt.toISOString(),
-          createdAt: job.createdAt.toISOString()
+          sentAt: job.sentAt?.toISOString() ?? null,
+          createdAt: job.createdAt.toISOString(),
+          updatedAt: job.updatedAt.toISOString()
         }))
+      })
+    );
+  }
+
+  if (pathname === "/admin/audit-logs" && request.method === "GET") {
+    await requireSuperAdmin(request, env);
+    const url = new URL(request.url);
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? 50)));
+    const filters = [];
+    const action = url.searchParams.get("action");
+    const actorId = url.searchParams.get("actorId");
+    const targetId = url.searchParams.get("targetId");
+    const targetType = url.searchParams.get("targetType");
+
+    if (action) filters.push(eq(auditLogs.action, action));
+    if (actorId) filters.push(eq(auditLogs.actorId, actorId));
+    if (targetId) filters.push(eq(auditLogs.targetId, targetId));
+    if (targetType) filters.push(eq(auditLogs.targetType, targetType));
+
+    const db = getDb(env);
+    let query = db
+      .select({
+        id: auditLogs.id,
+        actorId: auditLogs.actorId,
+        action: auditLogs.action,
+        targetType: auditLogs.targetType,
+        targetId: auditLogs.targetId,
+        metadata: auditLogs.metadata,
+        ipPrefix: auditLogs.ipPrefix,
+        createdAt: auditLogs.createdAt
+      })
+      .from(auditLogs)
+      .$dynamic();
+
+    if (filters.length) query = query.where(and(...filters));
+
+    const rows = await query.orderBy(desc(auditLogs.createdAt)).limit(limit);
+    const actorIds = [...new Set(rows.map((row) => row.actorId).filter((id): id is string => Boolean(id)))];
+    const actors = actorIds.length
+      ? await db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(inArray(users.id, actorIds))
+      : [];
+    const actorEmails = new Map(actors.map((actor) => [actor.id, actor.email]));
+
+    return json(
+      auditLogsResponseSchema.parse({
+        logs: rows.map((row) => ({
+          ...row,
+          actorEmail: row.actorId ? actorEmails.get(row.actorId) ?? null : null,
+          createdAt: row.createdAt.toISOString()
+        }))
+      })
+    );
+  }
+
+  if (pathname === "/admin/health" && request.method === "GET") {
+    await requireSuperAdmin(request, env);
+    const db = getDb(env);
+    const startedAt = Date.now();
+    await db.select({ ok: sql<number>`1` }).from(users).limit(1);
+    const latencyMs = Date.now() - startedAt;
+
+    const [open] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(conversations)
+      .where(eq(conversations.status, "open"));
+    const [unassigned] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(conversations)
+      .where(and(eq(conversations.status, "open"), isNull(conversations.assignedAgentId)));
+    const [waiting] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(conversations)
+      .where(sql`${conversations.status} = 'open'
+        AND ${conversations.lastCustomerMessageAt} IS NOT NULL
+        AND (${conversations.lastAgentMessageAt} IS NULL OR ${conversations.lastCustomerMessageAt} > ${conversations.lastAgentMessageAt})`);
+    const notificationCounts = await db
+      .select({
+        status: notificationJobs.status,
+        count: sql<number>`COUNT(*)`
+      })
+      .from(notificationJobs)
+      .where(sql`${notificationJobs.status} IN ('queued', 'failed', 'sending')`)
+      .groupBy(notificationJobs.status);
+    const notificationCount = new Map(notificationCounts.map((row) => [row.status, Number(row.count)]));
+
+    return json(
+      adminHealthResponseSchema.parse({
+        ok: true,
+        time: new Date().toISOString(),
+        database: {
+          ok: true,
+          latencyMs
+        },
+        conversations: {
+          open: Number(open?.count ?? 0),
+          unassigned: Number(unassigned?.count ?? 0),
+          waiting: Number(waiting?.count ?? 0)
+        },
+        notifications: {
+          queued: notificationCount.get("queued") ?? 0,
+          failed: notificationCount.get("failed") ?? 0,
+          sending: notificationCount.get("sending") ?? 0
+        }
       })
     );
   }

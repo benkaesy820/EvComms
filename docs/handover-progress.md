@@ -80,6 +80,9 @@ The product is not a ticket system. Customers should see one human support conve
 - Agent can access assigned conversation dashboard.
 - Customer can only access their own conversation.
 - Suspended users cannot keep active sessions after suspension.
+- Users can list active sessions.
+- Users can log out everywhere.
+- Users can update their message email notification preference.
 
 ### Super Admin Operations
 
@@ -93,6 +96,8 @@ The product is not a ticket system. Customers should see one human support conve
 - Super Admin can view notification jobs.
 - Super Admin can manually process notification jobs.
 - Super Admin can update basic settings.
+- Super Admin can query audit logs.
+- Super Admin can query an operational health summary covering database latency, conversation counts, and notification job counts.
 
 ### Conversations And Messages
 
@@ -157,8 +162,12 @@ Not fully built yet:
 
 Implemented:
 
-- First customer message can assign an unassigned conversation.
+- New conversations start unassigned.
+- First customer message assigns an unassigned conversation.
 - Assignment picks an approved agent with the fewest active open conversations.
+- Assignment respects configured max active conversations per agent.
+- If no regular agent is available under capacity, assignment falls back to the least-loaded approved Super Admin.
+- Automatic assignment and queued-assignment decisions are audit logged.
 - Manual Super Admin reassignment exists.
 - Agent suspension attempts reassignment using the same basic chooser.
 
@@ -166,9 +175,8 @@ Not fully implemented:
 
 - Online/away presence is not used.
 - Department/subsidiary routing is not used.
-- Agent capacity limits are not enforced strongly enough.
-- Super Admin escalation threshold is not complete.
-- Queueing when nobody is online is not complete.
+- Super Admin escalation is basic fallback behavior, not a full threshold/availability model.
+- Queueing when nobody is available is represented by `assignedAgentId = null`, but there is no queue-management UI yet.
 - Assignment audit/detail UI is missing.
 
 ### Notifications
@@ -184,13 +192,16 @@ Implemented:
 - Scheduled Worker trigger processes a small batch.
 - Dry-run processing exists for acceptance checks.
 - Notification job page shows queued/failed/sent summaries.
+- Message email notification preference is stored per user.
+- Normal message email notifications are skipped if the recipient disables them.
+- Transactional notifications such as password reset and account review are not blocked by that preference.
 
 Not fully implemented:
 
 - Production email provider credentials and delivery need final setup.
 - Brevo primary provider and Gmail/SMTP fallback need full production verification.
 - Push notifications are not implemented.
-- Notification preferences per user are not implemented.
+- Notification preferences have backend support but no dedicated UI yet.
 - Health/alerting around notification failures is not implemented.
 - Notification details UI is thin.
 
@@ -242,6 +253,8 @@ Implemented:
 
 - `audit_logs` table.
 - Important backend actions call audit logging in existing flows.
+- Super Admin audit-log API exists with basic filters for action, actor, target type, target id, and limit.
+- Audit log indexes exist for actor, action, target, and created time.
 
 Missing:
 
@@ -271,6 +284,9 @@ Useful indexes already present:
 - password reset token lookup
 - auth rate limit scope/identifier and locked-until lookup
 - audit actor lookup
+- audit action lookup
+- audit target lookup
+- audit created-time lookup
 - conversation customer uniqueness
 - conversation assigned-agent lookup
 - conversation status/last-message lookup
@@ -302,11 +318,14 @@ These are the main things already partly in backend/data but not fully surfaced 
 - `customerUnreadCount`: backend updates it, but customer UI does not visibly use it.
 - `agentUnreadCount`: backend updates it and admin/agent list shows a badge.
 - Waiting-first sorting: backend does it, but UI has no filter/SLA dashboard yet.
-- Audit logs: backend writes exist, no audit page.
-- Notification jobs: queue/processing exists, UI is basic and provider status is not rich.
+- Audit logs: backend query API exists, no audit page.
+- Admin health: backend summary exists, no dashboard page.
+- Active sessions: backend list/logout-all exists, no UI page.
+- Notification preferences: backend get/update exists, no UI controls yet.
+- Notification jobs: queue/processing/details exist, UI is basic and provider status is not rich.
 - Rejection reason: API accepts a reason, UI currently uses a fixed reason.
 - Settings for subsidiaries/departments: UI can edit strings, but no routing/assignment UI.
-- Max active conversations per agent: setting exists, but assignment logic needs stronger production enforcement.
+- Max active conversations per agent: backend assignment respects it, but the UI does not explain capacity/queue decisions yet.
 - Reassignment: UI supports manual reassignment, but no history/details surface.
 - Close/reopen: works, but UI copy and timeline display need polish.
 
@@ -336,6 +355,11 @@ Recent acceptance coverage includes:
 - agent role boundaries
 - agent notification processing denied
 - notification dry run
+- session listing
+- notification preferences
+- first message assignment
+- admin health
+- audit logs
 - web shell
 
 Additional manual/API verification:
@@ -343,6 +367,7 @@ Additional manual/API verification:
 - Customer can reopen a closed conversation after the latest fix.
 - Chat message caching improves revisit speed.
 - Local migration endpoint successfully applied the recent conversation columns/index.
+- Local migration endpoint successfully applied the user notification preference column and audit indexes.
 
 ## Current Git State Notes
 
@@ -429,16 +454,23 @@ To find the latest local test emails, query approved users ordered by `updated_a
    - Filter by action, actor, target, and date.
    - Include approvals, rejections, suspensions, closures, reopens, assignment changes, settings updates, notification processing.
 
-5. Harden assignment.
-   - Enforce max active conversations per agent.
+5. Build UI for backend-complete account/admin surfaces.
+   - Active sessions and log out everywhere.
+   - Email notification preference.
+   - Admin health summary.
+   - Audit log page.
+   - Rich notification job details and retry status.
+
+6. Harden assignment beyond V1 fallback.
    - Add online/away foundation or mark it explicitly deferred.
-   - Improve reassignment on suspension.
+   - Add full threshold-based Super Admin escalation if required.
+   - Add department/subsidiary routing.
    - Add visible assignment reason/status.
 
 ### Important Before Launch
 
-- Add customer notification preferences.
-- Add session limit enforcement and "log out everywhere."
+- Add UI for customer notification preferences.
+- Add UI for active sessions and "log out everywhere."
 - Add richer settings validation/UI.
 - Add dashboard health panel for DB/API/notification status.
 - Add better handling for server/realtime reconnect states.
@@ -490,13 +522,16 @@ To find the latest local test emails, query approved users ordered by `updated_a
 3. Audit log UI.
    - Required for business disputes and admin confidence.
 
-4. Assignment hardening.
+4. Admin/account backend UI wiring.
+   - Sessions, preferences, admin health, and notification details now have backend support.
+
+5. Assignment hardening.
    - Make workload distribution visible and reliable.
 
-5. Settings/admin polish.
+6. Settings/admin polish.
    - Make operational controls clear without adding unnecessary complexity.
 
-6. Production deployment checklist.
+7. Production deployment checklist.
    - Secrets, provider config, domain, Cloudflare routes, migrations, backup, and monitoring.
 
 ## Known Risks
@@ -520,4 +555,3 @@ V1 should only be called complete when these are true:
 - Chat load feels fast on repeat opens and slow networks.
 - UI is compact, polished, and not empty on core pages.
 - Critical checks pass: typecheck, tests, web build, acceptance, and focused manual browser QA.
-

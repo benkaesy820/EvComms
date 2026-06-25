@@ -19,6 +19,7 @@ export const users = mysqlTable(
     phone: varchar("phone", { length: 32 }),
     passwordHash: varchar("password_hash", { length: 255 }).notNull(),
     status: varchar("status", { length: 32 }).notNull(),
+    emailNotificationsEnabled: int("email_notifications_enabled").notNull().default(1),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull()
   },
@@ -88,7 +89,12 @@ export const auditLogs = mysqlTable(
     ipPrefix: varchar("ip_prefix", { length: 64 }),
     createdAt: timestamp("created_at").defaultNow().notNull()
   },
-  (table) => [index("audit_logs_actor_id_idx").on(table.actorId)]
+  (table) => [
+    index("audit_logs_actor_id_idx").on(table.actorId),
+    index("audit_logs_action_idx").on(table.action),
+    index("audit_logs_target_idx").on(table.targetType, table.targetId),
+    index("audit_logs_created_at_idx").on(table.createdAt)
+  ]
 );
 
 export const conversations = mysqlTable(

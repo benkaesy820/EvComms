@@ -9,10 +9,12 @@ const statements = [
     phone VARCHAR(32),
     password_hash VARCHAR(255) NOT NULL,
     status VARCHAR(32) NOT NULL,
+    email_notifications_enabled INT NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY users_email_unique (email)
   )`,
+  `ALTER TABLE users ADD COLUMN email_notifications_enabled INT NOT NULL DEFAULT 1`,
   `CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
@@ -57,8 +59,14 @@ const statements = [
     metadata JSON,
     ip_prefix VARCHAR(64),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY audit_logs_actor_id_idx (actor_id)
+    KEY audit_logs_actor_id_idx (actor_id),
+    KEY audit_logs_action_idx (action),
+    KEY audit_logs_target_idx (target_type, target_id),
+    KEY audit_logs_created_at_idx (created_at)
   )`,
+  `ALTER TABLE audit_logs ADD KEY audit_logs_action_idx (action)`,
+  `ALTER TABLE audit_logs ADD KEY audit_logs_target_idx (target_type, target_id)`,
+  `ALTER TABLE audit_logs ADD KEY audit_logs_created_at_idx (created_at)`,
   `CREATE TABLE IF NOT EXISTS settings (
     setting_key VARCHAR(96) PRIMARY KEY,
     value_json JSON NOT NULL,

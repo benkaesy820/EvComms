@@ -1,6 +1,9 @@
 import type { z } from "zod";
 import type {
   accountStatusSchema,
+  accountPreferencesResponseSchema,
+  adminHealthResponseSchema,
+  auditLogsResponseSchema,
   authResponseSchema,
   closeConversationRequestSchema,
   conversationResponseSchema,
@@ -25,6 +28,8 @@ import type {
   registerRequestSchema,
   resetPasswordSchema,
   settingsResponseSchema,
+  sessionsResponseSchema,
+  updateAccountPreferencesRequestSchema,
   updateSettingsRequestSchema,
   usersResponseSchema,
   userRoleSchema
@@ -32,6 +37,11 @@ import type {
 
 export type UserRole = z.infer<typeof userRoleSchema>;
 export type AccountStatus = z.infer<typeof accountStatusSchema>;
+export type AccountPreferencesResponse = z.infer<typeof accountPreferencesResponseSchema>;
+export type UpdateAccountPreferencesRequest = z.infer<typeof updateAccountPreferencesRequestSchema>;
+export type SessionsResponse = z.infer<typeof sessionsResponseSchema>;
+export type AuditLogsResponse = z.infer<typeof auditLogsResponseSchema>;
+export type AdminHealthResponse = z.infer<typeof adminHealthResponseSchema>;
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type PublicUser = z.infer<typeof publicUserSchema>;
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;

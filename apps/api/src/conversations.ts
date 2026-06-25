@@ -295,6 +295,18 @@ export async function handleConversations(
       conversationId: conversation.id
     });
 
+    if (isCustomerMessage && !conversation.assignedAgentId) {
+      await audit(
+        db,
+        actor.id,
+        nextAssignedAgentId ? "conversation.auto_assigned" : "conversation.assignment_queued",
+        "conversation",
+        conversation.id,
+        request,
+        { assignedAgentId: nextAssignedAgentId }
+      );
+    }
+
     const [message] = await db
       .select({
         id: messages.id,
@@ -415,13 +427,12 @@ async function getOrCreateCustomerConversation(env: Env, customerId: string) {
   if (existing) return existing;
 
   const id = crypto.randomUUID();
-  const assignedAgentId = await chooseAgentForConversation(env);
 
   try {
     await db.insert(conversations).values({
       id,
       customerId,
-      assignedAgentId,
+      assignedAgentId: null,
       status: "open"
     });
   } catch (error) {
@@ -468,7 +479,26 @@ export async function chooseAgentForConversation(env: Env, excludeAgentId?: stri
     .orderBy(sql`COUNT(conversations.id)`, users.createdAt)
     .limit(1);
 
-  return approvedAgents[0]?.id ?? null;
+  if (approvedAgents[0]?.id) return approvedAgents[0].id;
+
+  const superAdminFilters = [eq(users.role, "super_admin"), eq(users.status, "approved")];
+  if (excludeAgentId) superAdminFilters.push(ne(users.id, excludeAgentId));
+  const fallbackAdmins = await db
+    .select({
+      id: users.id,
+      activeConversationCount: sql<number>`COUNT(conversations.id)`
+    })
+    .from(users)
+    .leftJoin(
+      conversations,
+      and(eq(conversations.assignedAgentId, users.id), eq(conversations.status, "open"))
+    )
+    .where(and(...superAdminFilters))
+    .groupBy(users.id)
+    .orderBy(sql`COUNT(conversations.id)`, users.createdAt)
+    .limit(1);
+
+  return fallbackAdmins[0]?.id ?? null;
 }
 
 async function markConversationRead(

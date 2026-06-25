@@ -1,13 +1,16 @@
 import { auditLogs, authRateLimits, passwordResetTokens, runMigrations, sessions, users } from "@evbus/db";
 import {
+  accountPreferencesResponseSchema,
   authResponseSchema,
   loginRequestSchema,
   publicUserSchema,
   registerRequestSchema,
   requestPasswordResetSchema,
-  resetPasswordSchema
+  resetPasswordSchema,
+  sessionsResponseSchema,
+  updateAccountPreferencesRequestSchema
 } from "@evbus/shared";
-import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { clearSessionCookie, createSessionCookie, getSessionToken } from "./cookies";
 import { getConnection, getDb } from "./db";
 import type { Env } from "./index";
@@ -40,6 +43,22 @@ export async function handleAuth(
 
   if (pathname === "/auth/logout" && request.method === "POST") {
     return logout(request, env);
+  }
+
+  if (pathname === "/auth/logout-all" && request.method === "POST") {
+    return logoutAll(request, env);
+  }
+
+  if (pathname === "/auth/sessions" && request.method === "GET") {
+    return listSessions(request, env);
+  }
+
+  if (pathname === "/account/preferences" && request.method === "GET") {
+    return getPreferences(request, env);
+  }
+
+  if (pathname === "/account/preferences" && request.method === "PUT") {
+    return updatePreferences(request, env);
   }
 
   if (pathname === "/auth/request-password-reset" && request.method === "POST") {
@@ -215,6 +234,96 @@ async function logout(request: Request, env: Env) {
   const response = json({ ok: true });
   response.headers.append("Set-Cookie", clearSessionCookie(isSecureCookie(env)));
   return response;
+}
+
+async function logoutAll(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const db = getDb(env);
+  const now = new Date();
+
+  await db
+    .update(sessions)
+    .set({ revokedAt: now })
+    .where(and(eq(sessions.userId, user.id), isNull(sessions.revokedAt)));
+
+  await audit(db, user.id, "auth.logout_all", "user", user.id, request);
+
+  const response = json({ ok: true });
+  response.headers.append("Set-Cookie", clearSessionCookie(isSecureCookie(env)));
+  return response;
+}
+
+async function listSessions(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const token = getSessionToken(request);
+  const tokenHash = token ? await sha256Hex(token) : null;
+  const db = getDb(env);
+  const rows = await db
+    .select({
+      id: sessions.id,
+      tokenHash: sessions.tokenHash,
+      userAgent: sessions.userAgent,
+      ipPrefix: sessions.ipPrefix,
+      createdAt: sessions.createdAt,
+      expiresAt: sessions.expiresAt
+    })
+    .from(sessions)
+    .where(and(eq(sessions.userId, user.id), isNull(sessions.revokedAt), gt(sessions.expiresAt, new Date())))
+    .orderBy(desc(sessions.createdAt))
+    .limit(10);
+
+  return json(
+    sessionsResponseSchema.parse({
+      sessions: rows.map((session) => ({
+        id: session.id,
+        current: tokenHash === session.tokenHash,
+        userAgent: session.userAgent,
+        ipPrefix: session.ipPrefix,
+        createdAt: session.createdAt.toISOString(),
+        expiresAt: session.expiresAt.toISOString()
+      }))
+    })
+  );
+}
+
+async function getPreferences(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const db = getDb(env);
+  const [row] = await db
+    .select({ emailNotificationsEnabled: users.emailNotificationsEnabled })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1);
+
+  return json(
+    accountPreferencesResponseSchema.parse({
+      preferences: {
+        emailNotificationsEnabled: row?.emailNotificationsEnabled !== 0
+      }
+    })
+  );
+}
+
+async function updatePreferences(request: Request, env: Env) {
+  const user = await requireUser(request, env);
+  const input = await readJson(request, updateAccountPreferencesRequestSchema);
+  const db = getDb(env);
+  const updates: { emailNotificationsEnabled?: number; updatedAt: Date } = { updatedAt: new Date() };
+
+  if (typeof input.emailNotificationsEnabled === "boolean") {
+    updates.emailNotificationsEnabled = input.emailNotificationsEnabled ? 1 : 0;
+  }
+
+  await db.update(users).set(updates).where(eq(users.id, user.id));
+  await audit(db, user.id, "account.preferences.updated", "user", user.id, request, input);
+
+  return json(
+    accountPreferencesResponseSchema.parse({
+      preferences: {
+        emailNotificationsEnabled: input.emailNotificationsEnabled ?? true
+      }
+    })
+  );
 }
 
 async function requestPasswordReset(request: Request, env: Env, ctx?: ExecutionContext) {

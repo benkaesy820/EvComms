@@ -59,6 +59,32 @@ export const authResponseSchema = z.object({
   user: publicUserSchema
 });
 
+export const accountPreferencesSchema = z.object({
+  emailNotificationsEnabled: z.boolean()
+});
+
+export const accountPreferencesResponseSchema = z.object({
+  preferences: accountPreferencesSchema
+});
+
+export const updateAccountPreferencesRequestSchema = accountPreferencesSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one preference is required."
+);
+
+export const sessionSchema = z.object({
+  id: z.string(),
+  current: z.boolean(),
+  userAgent: z.string().nullable(),
+  ipPrefix: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime()
+});
+
+export const sessionsResponseSchema = z.object({
+  sessions: z.array(sessionSchema)
+});
+
 export const pendingUsersResponseSchema = z.object({
   users: z.array(publicUserSchema)
 });
@@ -153,13 +179,17 @@ export const realtimeEventSchema = z.discriminatedUnion("type", [
 export const notificationJobSchema = z.object({
   id: z.string(),
   recipientId: z.string(),
+  recipientEmail: z.string().email().nullable(),
   channel: z.string(),
   type: z.string(),
   status: z.string(),
   dedupeKey: z.string().nullable(),
   attempts: z.number(),
   nextAttemptAt: z.string().datetime(),
-  createdAt: z.string().datetime()
+  sentAt: z.string().datetime().nullable(),
+  lastError: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
 });
 
 export const notificationJobsResponseSchema = z.object({
@@ -188,6 +218,41 @@ export const processNotificationJobsResponseSchema = z.object({
 
 export const okResponseSchema = z.object({
   ok: z.boolean()
+});
+
+export const auditLogSchema = z.object({
+  id: z.string(),
+  actorId: z.string().nullable(),
+  actorEmail: z.string().email().nullable(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string().nullable(),
+  metadata: z.unknown().nullable(),
+  ipPrefix: z.string().nullable(),
+  createdAt: z.string().datetime()
+});
+
+export const auditLogsResponseSchema = z.object({
+  logs: z.array(auditLogSchema)
+});
+
+export const adminHealthResponseSchema = z.object({
+  ok: z.boolean(),
+  time: z.string().datetime(),
+  database: z.object({
+    ok: z.boolean(),
+    latencyMs: z.number()
+  }),
+  conversations: z.object({
+    open: z.number(),
+    unassigned: z.number(),
+    waiting: z.number()
+  }),
+  notifications: z.object({
+    queued: z.number(),
+    failed: z.number(),
+    sending: z.number()
+  })
 });
 
 export const appSettingsSchema = z.object({
