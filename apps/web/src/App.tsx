@@ -189,7 +189,7 @@ export function App() {
       if (mode === "login") {
         const nextUser = await login({ email, password });
         setUser(nextUser);
-        setMessage("Logged in.");
+        setMessage("");
         return;
       }
 

@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import type { Conversation, ConversationSummary, Message, PublicUser } from "@evbus/shared";
 import { MoreVertical, RefreshCw, Search, Send } from "lucide-react";
 import { Badge } from "../components/ui/badge";
@@ -34,19 +34,40 @@ export function ConversationsPage({
   selectedConversationId,
   user
 }: ConversationsPageProps) {
+  const [query, setQuery] = useState("");
   const showInbox = user.role !== "customer";
   const canClose = user.role !== "customer" && selectedConversation?.status !== "closed";
   const canReassign = user.role === "super_admin" && Boolean(selectedConversation);
   const isClosed = selectedConversation?.status === "closed";
+  const filteredConversations = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return conversations;
+
+    return conversations.filter((item) =>
+      [item.customerName, item.customerEmail, item.lastMessagePreview ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [conversations, query]);
 
   return (
-    <div className="grid h-full min-h-0 overflow-hidden rounded-md border border-border bg-white shadow-sm xl:grid-cols-[320px_minmax(0,1fr)]">
+    <div
+      className={
+        showInbox
+          ? "grid h-full min-h-0 overflow-hidden rounded-md border border-border bg-white shadow-sm md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]"
+          : "grid h-full min-h-0 overflow-hidden rounded-md border border-border bg-white shadow-sm"
+      }
+    >
         {showInbox ? (
-          <aside className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] border-b border-border bg-[#f7faf7] xl:border-b-0 xl:border-r">
+          <aside className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] border-b border-border bg-[#f7faf7] md:border-b-0 md:border-r">
             <div className="flex h-12 items-center justify-between border-b border-border px-3">
               <div>
                 <h2 className="text-sm font-semibold">Chats</h2>
-                <p className="text-xs text-muted-foreground">{conversations.length} conversations</p>
+                <p className="text-xs text-muted-foreground">
+                  {filteredConversations.length}
+                  {query ? ` of ${conversations.length}` : ""} conversations
+                </p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={onRefresh} aria-label="Refresh conversations">
                 <RefreshCw className="h-4 w-4" />
@@ -56,17 +77,23 @@ export function ConversationsPage({
             <div className="border-b border-border p-2">
               <div className="flex h-8 items-center gap-2 rounded-md bg-[#eef3ef] px-3 text-sm text-muted-foreground">
                 <Search className="h-4 w-4" />
-                <span>Search customers</span>
+                <input
+                  className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search customers"
+                  aria-label="Search customers"
+                />
               </div>
             </div>
 
             <div className="min-h-0 overflow-auto">
-              {conversations.length === 0 ? (
+              {filteredConversations.length === 0 ? (
                 <p className="m-3 rounded-md border border-dashed border-border bg-background p-3 text-sm text-muted-foreground">
-                  {user.role === "agent" ? "No assigned conversations yet." : "No conversations yet."}
+                  {query ? "No conversations match that search." : user.role === "agent" ? "No assigned conversations yet." : "No conversations yet."}
                 </p>
               ) : (
-                conversations.map((item) => (
+                filteredConversations.map((item) => (
                   <button
                     type="button"
                     className="grid w-full gap-0.5 border-b border-border/70 px-3 py-2.5 text-left text-sm transition data-[active=true]:bg-[#e5f3ef] data-[active=false]:hover:bg-white"

@@ -22,7 +22,7 @@ type CustomersPageProps = PeopleListProps & {
 
 export function AgentsPage({ onCreateAgent, onRefresh, onSuspend, people }: AgentsPageProps) {
   return (
-    <Card>
+    <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -38,7 +38,7 @@ export function AgentsPage({ onCreateAgent, onRefresh, onSuspend, people }: Agen
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-3 p-3">
+      <CardContent className="grid min-h-0 gap-3 overflow-auto p-3">
         <form className="grid gap-2 sm:grid-cols-2" onSubmit={onCreateAgent}>
           <Input name="name" autoComplete="name" placeholder="Name" required minLength={2} />
           <Input name="email" type="email" autoComplete="email" placeholder="Email" required />
@@ -54,7 +54,7 @@ export function AgentsPage({ onCreateAgent, onRefresh, onSuspend, people }: Agen
 
 export function CustomersPage({ onRefresh, onSuspend, people }: CustomersPageProps) {
   return (
-    <Card>
+    <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -70,7 +70,7 @@ export function CustomersPage({ onRefresh, onSuspend, people }: CustomersPagePro
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="p-3">
+      <CardContent className="min-h-0 overflow-auto p-3">
         <PeopleList onSuspend={onSuspend} people={people} />
       </CardContent>
     </Card>

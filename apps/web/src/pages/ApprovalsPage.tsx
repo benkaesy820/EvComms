@@ -12,7 +12,7 @@ type ApprovalsPageProps = {
 
 export function ApprovalsPage({ onApprove, onRefresh, onReject, pendingUsers }: ApprovalsPageProps) {
   return (
-    <Card>
+    <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -28,7 +28,7 @@ export function ApprovalsPage({ onApprove, onRefresh, onReject, pendingUsers }: 
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-2 p-3">
+      <CardContent className="grid min-h-0 gap-2 overflow-auto p-3">
         {pendingUsers.length === 0 ? (
           <p className="text-sm text-muted-foreground">No pending customers.</p>
         ) : (

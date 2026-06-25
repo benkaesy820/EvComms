@@ -72,6 +72,7 @@ export function AppLayout({
     },
     { count: counts.departments, icon: Settings, id: "settings", label: "Settings", roles: ["super_admin"] }
   ];
+  const visibleNavItems = navItems.filter((item) => item.roles.includes(user.role));
 
   return (
     <main className="grid h-svh overflow-hidden bg-[#eef3ef] text-foreground lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -91,8 +92,7 @@ export function AppLayout({
         </div>
 
         <nav className="grid content-start gap-1 px-3 py-3" aria-label="Workspace">
-          {navItems
-            .filter((item) => item.roles.includes(user.role))
+          {visibleNavItems
             .map(({ count, icon: Icon, id, label }) => (
               <button
                 type="button"
@@ -124,7 +124,7 @@ export function AppLayout({
         </div>
       </aside>
 
-      <section className="grid min-h-0 grid-rows-[52px_minmax(0,1fr)]">
+      <section className="grid min-h-0 grid-rows-[52px_auto_minmax(0,1fr)] lg:grid-rows-[52px_minmax(0,1fr)]">
         <header className="flex items-center justify-between gap-3 border-b border-border bg-white px-4">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{activeTitle(activePage)}</p>
@@ -133,12 +133,40 @@ export function AppLayout({
           <div className="flex items-center gap-2">
             <HealthBadge health={health} />
             <Badge variant="outline" className="hidden capitalize sm:inline-flex">{roleLabel}</Badge>
-            <Button type="button" variant="outline" size="sm" className="h-8 px-3" onClick={onLogout}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 px-3"
+              onClick={onLogout}
+              aria-label="Log out"
+            >
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">Log out</span>
             </Button>
           </div>
         </header>
+
+        <nav
+          className="flex gap-1.5 overflow-x-auto border-b border-border bg-[#f7faf7] px-2 py-2 [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden"
+          aria-label="Workspace"
+        >
+          {visibleNavItems.map(({ count, icon: Icon, id, label }) => (
+            <button
+              type="button"
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=false]:bg-white data-[active=false]:text-muted-foreground"
+              data-active={activePage === id}
+              key={id}
+              onClick={() => onNavigate(id)}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span>{label}</span>
+              {typeof count === "number" ? (
+                <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px]">{count}</span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
 
         <div className="min-h-0 min-w-0 overflow-hidden p-1.5 md:p-2">{children}</div>
       </section>

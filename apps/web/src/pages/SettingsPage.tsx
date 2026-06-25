@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { RefreshCw, Settings } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -15,7 +15,7 @@ type SettingsPageProps = {
 
 export function SettingsPage({ onRefresh, onSubmit, settings }: SettingsPageProps) {
   return (
-    <Card>
+    <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -32,44 +32,69 @@ export function SettingsPage({ onRefresh, onSubmit, settings }: SettingsPageProp
         </div>
       </CardHeader>
       {settings ? (
-        <CardContent className="p-3">
+        <CardContent className="min-h-0 overflow-auto p-3">
           <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmit}>
-            <Input name="siteName" defaultValue={settings.siteName} required maxLength={80} />
-            <Input name="companyName" defaultValue={settings.companyName} required maxLength={120} />
-            <Input name="tagline" defaultValue={settings.tagline} required maxLength={240} />
-            <Input name="supportEmail" type="email" defaultValue={settings.supportEmail} required />
-            <Input
-              name="subsidiaries"
-              defaultValue={settings.subsidiaries.join(", ")}
-              placeholder="Accra Office, Kumasi Office"
-              required
-            />
-            <Input
-              name="departments"
-              defaultValue={settings.departments.join(", ")}
-              placeholder="General Support, Billing, Technical Support"
-              required
-            />
-            <Input
-              name="maxActiveConversationsPerAgent"
-              type="number"
-              min={1}
-              max={200}
-              defaultValue={settings.maxActiveConversationsPerAgent}
-              required
-            />
-            <Input
-              name="emailNotificationDebounceMinutes"
-              type="number"
-              min={1}
-              max={30}
-              defaultValue={settings.emailNotificationDebounceMinutes}
-              required
-            />
+            <Field label="Site name">
+              <Input name="siteName" defaultValue={settings.siteName} required maxLength={80} />
+            </Field>
+            <Field label="Company name">
+              <Input name="companyName" defaultValue={settings.companyName} required maxLength={120} />
+            </Field>
+            <Field label="Tagline">
+              <Input name="tagline" defaultValue={settings.tagline} required maxLength={240} />
+            </Field>
+            <Field label="Support email">
+              <Input name="supportEmail" type="email" defaultValue={settings.supportEmail} required />
+            </Field>
+            <Field label="Locations">
+              <Input
+                name="subsidiaries"
+                defaultValue={settings.subsidiaries.join(", ")}
+                placeholder="Accra Office, Kumasi Office"
+                required
+              />
+            </Field>
+            <Field label="Departments">
+              <Input
+                name="departments"
+                defaultValue={settings.departments.join(", ")}
+                placeholder="General Support, Billing, Technical Support"
+                required
+              />
+            </Field>
+            <Field label="Max active conversations per agent">
+              <Input
+                name="maxActiveConversationsPerAgent"
+                type="number"
+                min={1}
+                max={200}
+                defaultValue={settings.maxActiveConversationsPerAgent}
+                required
+              />
+            </Field>
+            <Field label="Notification debounce minutes">
+              <Input
+                name="emailNotificationDebounceMinutes"
+                type="number"
+                min={1}
+                max={30}
+                defaultValue={settings.emailNotificationDebounceMinutes}
+                required
+              />
+            </Field>
             <Button type="submit" className="md:col-span-2">Save Settings</Button>
           </form>
         </CardContent>
       ) : null}
     </Card>
+  );
+}
+
+function Field({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <label className="grid gap-1.5 text-sm font-semibold text-foreground">
+      <span>{label}</span>
+      {children}
+    </label>
   );
 }
