@@ -99,7 +99,11 @@ export const conversations = mysqlTable(
     assignedAgentId: varchar("assigned_agent_id", { length: 36 }),
     status: varchar("status", { length: 32 }).notNull(),
     lastMessageAt: timestamp("last_message_at"),
+    lastCustomerMessageAt: timestamp("last_customer_message_at"),
+    lastAgentMessageAt: timestamp("last_agent_message_at"),
     lastMessagePreview: varchar("last_message_preview", { length: 180 }),
+    customerUnreadCount: int("customer_unread_count").notNull().default(0),
+    agentUnreadCount: int("agent_unread_count").notNull().default(0),
     closedAt: timestamp("closed_at"),
     closedBy: varchar("closed_by", { length: 36 }),
     closingNote: text("closing_note"),
@@ -109,7 +113,8 @@ export const conversations = mysqlTable(
   (table) => [
     uniqueIndex("conversations_customer_id_unique").on(table.customerId),
     index("conversations_assigned_agent_id_idx").on(table.assignedAgentId),
-    index("conversations_status_last_message_idx").on(table.status, table.lastMessageAt)
+    index("conversations_status_last_message_idx").on(table.status, table.lastMessageAt),
+    index("conversations_waiting_idx").on(table.status, table.lastCustomerMessageAt, table.lastAgentMessageAt)
   ]
 );
 

@@ -10,6 +10,10 @@ type NotificationsPageProps = {
 };
 
 export function NotificationsPage({ jobs, onProcess, onRefresh }: NotificationsPageProps) {
+  const queued = jobs.filter((job) => job.status === "queued").length;
+  const failed = jobs.filter((job) => job.status === "failed").length;
+  const sent = jobs.filter((job) => job.status === "sent").length;
+
   return (
     <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
@@ -33,6 +37,18 @@ export function NotificationsPage({ jobs, onProcess, onRefresh }: NotificationsP
         </div>
       </CardHeader>
       <CardContent className="grid min-h-0 gap-2 overflow-auto p-3">
+        <div className="grid gap-2 sm:grid-cols-3">
+          {[
+            ["Queued", queued],
+            ["Failed", failed],
+            ["Sent", sent]
+          ].map(([label, value]) => (
+            <div className="rounded-md border border-border bg-[#f7faf7] px-3 py-2" key={label}>
+              <p className="text-[11px] font-semibold uppercase text-muted-foreground">{label}</p>
+              <strong className="text-lg">{value}</strong>
+            </div>
+          ))}
+        </div>
         {jobs.length === 0 ? (
           <p className="text-sm text-muted-foreground">No notification jobs.</p>
         ) : (

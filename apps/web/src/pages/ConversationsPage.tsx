@@ -96,18 +96,26 @@ export function ConversationsPage({
                 filteredConversations.map((item) => (
                   <button
                     type="button"
-                    className="grid w-full gap-0.5 border-b border-border/70 px-3 py-2.5 text-left text-sm transition data-[active=true]:bg-[#e5f3ef] data-[active=false]:hover:bg-white"
+                    className="grid w-full gap-1 border-b border-border/70 px-3 py-2.5 text-left text-sm transition data-[active=true]:bg-[#e5f3ef] data-[active=false]:hover:bg-white"
                     data-active={item.id === selectedConversationId}
                     key={item.id}
                     onClick={() => onSelectConversation(item.id)}
                   >
                     <span className="flex items-center justify-between gap-2">
                       <strong className="truncate">{item.customerName}</strong>
-                      <StatusDot status={item.status} />
+                      <span className="inline-flex shrink-0 items-center gap-1.5">
+                        {item.agentUnreadCount > 0 ? (
+                          <Badge variant="success" className="px-1.5 py-0 text-[10px]">
+                            {item.agentUnreadCount}
+                          </Badge>
+                        ) : null}
+                        <StatusDot status={item.status} />
+                      </span>
                     </span>
                     <span className="truncate text-muted-foreground">
                       {item.lastMessagePreview ?? item.customerEmail}
                     </span>
+                    <ConversationMeta item={item} />
                   </button>
                 ))
               )}
@@ -256,4 +264,41 @@ function StatusDot({ status }: { status: ConversationSummary["status"] }) {
       aria-label={status}
     />
   );
+}
+
+function ConversationMeta({ item }: { item: ConversationSummary }) {
+  const waitingSince = getWaitingSince(item);
+
+  return (
+    <span className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
+      <span className="truncate">
+        {item.assignedAgentId ? "Assigned" : "Unassigned"}
+        {item.status === "closed" ? " - closed" : ""}
+      </span>
+      {waitingSince ? (
+        <span className="shrink-0 font-semibold text-amber-700">
+          waiting {formatRelativeAge(waitingSince)}
+        </span>
+      ) : item.lastMessageAt ? (
+        <span className="shrink-0">{formatRelativeAge(item.lastMessageAt)}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function getWaitingSince(item: ConversationSummary) {
+  if (item.status !== "open" || !item.lastCustomerMessageAt) return null;
+  if (!item.lastAgentMessageAt) return item.lastCustomerMessageAt;
+  return new Date(item.lastCustomerMessageAt) > new Date(item.lastAgentMessageAt)
+    ? item.lastCustomerMessageAt
+    : null;
+}
+
+function formatRelativeAge(value: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }

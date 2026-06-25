@@ -71,7 +71,11 @@ const statements = [
     assigned_agent_id VARCHAR(36),
     status VARCHAR(32) NOT NULL,
     last_message_at TIMESTAMP NULL,
+    last_customer_message_at TIMESTAMP NULL,
+    last_agent_message_at TIMESTAMP NULL,
     last_message_preview VARCHAR(180),
+    customer_unread_count INT NOT NULL DEFAULT 0,
+    agent_unread_count INT NOT NULL DEFAULT 0,
     closed_at TIMESTAMP NULL,
     closed_by VARCHAR(36),
     closing_note TEXT,
@@ -80,14 +84,20 @@ const statements = [
     UNIQUE KEY conversations_customer_id_unique (customer_id),
     KEY conversations_assigned_agent_id_idx (assigned_agent_id),
     KEY conversations_status_last_message_idx (status, last_message_at),
+    KEY conversations_waiting_idx (status, last_customer_message_at, last_agent_message_at),
     CONSTRAINT conversations_customer_id_fk FOREIGN KEY (customer_id) REFERENCES users(id),
     CONSTRAINT conversations_assigned_agent_id_fk FOREIGN KEY (assigned_agent_id) REFERENCES users(id),
     CONSTRAINT conversations_closed_by_fk FOREIGN KEY (closed_by) REFERENCES users(id)
   )`,
   `ALTER TABLE conversations ADD COLUMN last_message_preview VARCHAR(180)`,
+  `ALTER TABLE conversations ADD COLUMN last_customer_message_at TIMESTAMP NULL`,
+  `ALTER TABLE conversations ADD COLUMN last_agent_message_at TIMESTAMP NULL`,
+  `ALTER TABLE conversations ADD COLUMN customer_unread_count INT NOT NULL DEFAULT 0`,
+  `ALTER TABLE conversations ADD COLUMN agent_unread_count INT NOT NULL DEFAULT 0`,
   `ALTER TABLE conversations ADD COLUMN closed_at TIMESTAMP NULL`,
   `ALTER TABLE conversations ADD COLUMN closed_by VARCHAR(36)`,
   `ALTER TABLE conversations ADD COLUMN closing_note TEXT`,
+  `ALTER TABLE conversations ADD KEY conversations_waiting_idx (status, last_customer_message_at, last_agent_message_at)`,
   `CREATE TABLE IF NOT EXISTS messages (
     id VARCHAR(36) PRIMARY KEY,
     conversation_id VARCHAR(36) NOT NULL,
@@ -112,6 +122,38 @@ const statements = [
         SELECT 1
         FROM messages m
         WHERE m.conversation_id = c.id
+      )`,
+  `UPDATE conversations c
+    SET last_customer_message_at = (
+      SELECT MAX(m.created_at)
+      FROM messages m
+      INNER JOIN users u ON u.id = m.sender_id
+      WHERE m.conversation_id = c.id
+        AND u.role = 'customer'
+    )
+    WHERE last_customer_message_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM messages m
+        INNER JOIN users u ON u.id = m.sender_id
+        WHERE m.conversation_id = c.id
+          AND u.role = 'customer'
+      )`,
+  `UPDATE conversations c
+    SET last_agent_message_at = (
+      SELECT MAX(m.created_at)
+      FROM messages m
+      INNER JOIN users u ON u.id = m.sender_id
+      WHERE m.conversation_id = c.id
+        AND u.role <> 'customer'
+    )
+    WHERE last_agent_message_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM messages m
+        INNER JOIN users u ON u.id = m.sender_id
+        WHERE m.conversation_id = c.id
+          AND u.role <> 'customer'
       )`,
   `CREATE TABLE IF NOT EXISTS notification_jobs (
     id VARCHAR(36) PRIMARY KEY,

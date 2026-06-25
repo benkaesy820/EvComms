@@ -56,7 +56,11 @@ export async function handleConversations(
         assignedAgentId: conversations.assignedAgentId,
         status: conversations.status,
         lastMessageAt: conversations.lastMessageAt,
+        lastCustomerMessageAt: conversations.lastCustomerMessageAt,
+        lastAgentMessageAt: conversations.lastAgentMessageAt,
         lastMessagePreview: conversations.lastMessagePreview,
+        customerUnreadCount: conversations.customerUnreadCount,
+        agentUnreadCount: conversations.agentUnreadCount,
         closedAt: conversations.closedAt,
         closedBy: conversations.closedBy,
         closingNote: conversations.closingNote,
@@ -73,7 +77,17 @@ export async function handleConversations(
       query = query.where(eq(conversations.assignedAgentId, actor.id));
     }
 
-    const rows = await query.orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt)).limit(100);
+    const waitingRank = sql`CASE WHEN ${conversations.status} = 'open'
+      AND ${conversations.lastCustomerMessageAt} IS NOT NULL
+      AND (${conversations.lastAgentMessageAt} IS NULL OR ${conversations.lastCustomerMessageAt} > ${conversations.lastAgentMessageAt})
+      THEN 0 ELSE 1 END`;
+    const waitingSince = sql`CASE WHEN ${conversations.status} = 'open'
+      AND ${conversations.lastCustomerMessageAt} IS NOT NULL
+      AND (${conversations.lastAgentMessageAt} IS NULL OR ${conversations.lastCustomerMessageAt} > ${conversations.lastAgentMessageAt})
+      THEN ${conversations.lastCustomerMessageAt} ELSE NULL END`;
+    const rows = await query
+      .orderBy(waitingRank, waitingSince, desc(conversations.lastMessageAt), desc(conversations.createdAt))
+      .limit(100);
 
     return json(
       conversationsResponseSchema.parse({
@@ -189,10 +203,6 @@ export async function handleConversations(
     const actor = await requireUser(request, env);
     const conversation = await requireConversationAccess(env, actor, reopenMatch[1]);
 
-    if (actor.role === "customer") {
-      throw new HttpError(403, "Customers cannot reopen conversations.");
-    }
-
     if (conversation.status === "open") {
       throw new HttpError(409, "Conversation is already open.");
     }
@@ -237,6 +247,8 @@ export async function handleConversations(
       .orderBy(desc(messages.createdAt))
       .limit(200);
 
+    await markConversationRead(db, actor.role, conversation);
+
     return json(messagesResponseSchema.parse({ messages: rows.reverse().map(serializeMessage) }));
   }
 
@@ -259,9 +271,24 @@ export async function handleConversations(
       createdAt: now
     });
 
+    const isCustomerMessage = actor.role === "customer";
+    const nextAssignedAgentId =
+      isCustomerMessage && !conversation.assignedAgentId
+        ? await chooseAgentForConversation(env)
+        : conversation.assignedAgentId;
+
     await db
       .update(conversations)
-      .set({ lastMessageAt: now, lastMessagePreview: input.body.slice(0, 180), updatedAt: now })
+      .set({
+        assignedAgentId: nextAssignedAgentId,
+        lastMessageAt: now,
+        lastCustomerMessageAt: isCustomerMessage ? now : conversation.lastCustomerMessageAt,
+        lastAgentMessageAt: isCustomerMessage ? conversation.lastAgentMessageAt : now,
+        lastMessagePreview: input.body.slice(0, 180),
+        customerUnreadCount: isCustomerMessage ? conversation.customerUnreadCount : sql`${conversations.customerUnreadCount} + 1`,
+        agentUnreadCount: isCustomerMessage ? sql`${conversations.agentUnreadCount} + 1` : 0,
+        updatedAt: now
+      })
       .where(eq(conversations.id, conversation.id));
 
     await audit(db, actor.id, "conversation.message.created", "message", messageId, request, {
@@ -288,7 +315,12 @@ export async function handleConversations(
     }
 
     const serializedMessage = serializeMessage(message);
-    const notifications = enqueueMessageNotifications(env, conversation, actor.id, serializedMessage).catch(
+    const notifications = enqueueMessageNotifications(
+      env,
+      { ...conversation, assignedAgentId: nextAssignedAgentId },
+      actor.id,
+      serializedMessage
+    ).catch(
       (error) => {
         console.error(error);
       }
@@ -439,6 +471,27 @@ export async function chooseAgentForConversation(env: Env, excludeAgentId?: stri
   return approvedAgents[0]?.id ?? null;
 }
 
+async function markConversationRead(
+  db: ReturnType<typeof getDb>,
+  actorRole: string,
+  conversation: { id: string; customerUnreadCount: number; agentUnreadCount: number }
+) {
+  if (actorRole === "customer") {
+    if (conversation.customerUnreadCount === 0) return;
+    await db
+      .update(conversations)
+      .set({ customerUnreadCount: 0 })
+      .where(eq(conversations.id, conversation.id));
+    return;
+  }
+
+  if (conversation.agentUnreadCount === 0) return;
+  await db
+    .update(conversations)
+    .set({ agentUnreadCount: 0 })
+    .where(eq(conversations.id, conversation.id));
+}
+
 async function requireConversationAccess(
   env: Env,
   actor: Awaited<ReturnType<typeof requireUser>>,
@@ -496,7 +549,11 @@ function serializeConversation(conversation: {
   assignedAgentId: string | null;
   status: string;
   lastMessageAt: Date | null;
+  lastCustomerMessageAt?: Date | null;
+  lastAgentMessageAt?: Date | null;
   lastMessagePreview?: string | null;
+  customerUnreadCount?: number;
+  agentUnreadCount?: number;
   closedAt: Date | null;
   closedBy: string | null;
   closingNote: string | null;
@@ -509,6 +566,10 @@ function serializeConversation(conversation: {
     assignedAgentId: conversation.assignedAgentId,
     status: conversation.status,
     lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
+    lastCustomerMessageAt: conversation.lastCustomerMessageAt?.toISOString() ?? null,
+    lastAgentMessageAt: conversation.lastAgentMessageAt?.toISOString() ?? null,
+    customerUnreadCount: conversation.customerUnreadCount ?? 0,
+    agentUnreadCount: conversation.agentUnreadCount ?? 0,
     closedAt: conversation.closedAt?.toISOString() ?? null,
     closedBy: conversation.closedBy,
     closingNote: conversation.closingNote,

@@ -21,6 +21,9 @@ type CustomersPageProps = PeopleListProps & {
 };
 
 export function AgentsPage({ onCreateAgent, onRefresh, onSuspend, people }: AgentsPageProps) {
+  const approved = people.filter((person) => person.status === "approved").length;
+  const suspended = people.filter((person) => person.status === "suspended").length;
+
   return (
     <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
@@ -39,6 +42,7 @@ export function AgentsPage({ onCreateAgent, onRefresh, onSuspend, people }: Agen
         </div>
       </CardHeader>
       <CardContent className="grid min-h-0 gap-3 overflow-auto p-3">
+        <StatsRow stats={[["Total", people.length], ["Approved", approved], ["Suspended", suspended]]} />
         <form className="grid gap-2 sm:grid-cols-2" onSubmit={onCreateAgent}>
           <Input name="name" autoComplete="name" placeholder="Name" required minLength={2} />
           <Input name="email" type="email" autoComplete="email" placeholder="Email" required />
@@ -53,6 +57,10 @@ export function AgentsPage({ onCreateAgent, onRefresh, onSuspend, people }: Agen
 }
 
 export function CustomersPage({ onRefresh, onSuspend, people }: CustomersPageProps) {
+  const approved = people.filter((person) => person.status === "approved").length;
+  const pending = people.filter((person) => person.status === "pending").length;
+  const suspended = people.filter((person) => person.status === "suspended").length;
+
   return (
     <Card className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <CardHeader className="border-b border-border">
@@ -71,9 +79,23 @@ export function CustomersPage({ onRefresh, onSuspend, people }: CustomersPagePro
         </div>
       </CardHeader>
       <CardContent className="min-h-0 overflow-auto p-3">
+        <StatsRow stats={[["Total", people.length], ["Approved", approved], ["Pending", pending], ["Suspended", suspended]]} />
         <PeopleList onSuspend={onSuspend} people={people} />
       </CardContent>
     </Card>
+  );
+}
+
+function StatsRow({ stats }: { stats: Array<[string, number]> }) {
+  return (
+    <div className="mb-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      {stats.map(([label, value]) => (
+        <div className="rounded-md border border-border bg-[#f7faf7] px-3 py-2" key={label}>
+          <p className="text-[11px] font-semibold uppercase text-muted-foreground">{label}</p>
+          <strong className="text-lg">{value}</strong>
+        </div>
+      ))}
+    </div>
   );
 }
 

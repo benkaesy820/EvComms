@@ -29,6 +29,10 @@ export function ApprovalsPage({ onApprove, onRefresh, onReject, pendingUsers }: 
         </div>
       </CardHeader>
       <CardContent className="grid min-h-0 gap-2 overflow-auto p-3">
+        <div className="rounded-md border border-border bg-[#f7faf7] px-3 py-2 text-sm">
+          <strong>{pendingUsers.length}</strong>
+          <span className="ml-1 text-muted-foreground">waiting for review</span>
+        </div>
         {pendingUsers.length === 0 ? (
           <p className="text-sm text-muted-foreground">No pending customers.</p>
         ) : (
