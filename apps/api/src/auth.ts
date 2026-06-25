@@ -110,6 +110,7 @@ export async function requireUser(request: Request, env: Env) {
       name: users.name,
       email: users.email,
       phone: users.phone,
+      registrationNote: users.registrationNote,
       status: users.status
     })
     .from(sessions)
@@ -153,11 +154,15 @@ async function register(request: Request, env: Env) {
     name: input.name,
     email,
     phone: input.phone,
+    registrationNote: input.registrationNote ?? null,
     passwordHash,
     status: "pending"
   });
 
-  await audit(db, null, "customer.registered", "user", id, request, { email });
+  await audit(db, null, "customer.registered", "user", id, request, {
+    email,
+    hasRegistrationNote: Boolean(input.registrationNote)
+  });
   return json(
     authResponseSchema.parse({
       user: toPublicUser({
@@ -166,6 +171,7 @@ async function register(request: Request, env: Env) {
         name: input.name,
         email,
         phone: input.phone,
+        registrationNote: input.registrationNote ?? null,
         status: "pending"
       })
     }),
@@ -570,6 +576,7 @@ function toPublicUser(user: {
   email: string;
   phone: string | null;
   status: string;
+  registrationNote?: string | null;
 }) {
   return publicUserSchema.parse({
     id: user.id,
@@ -577,6 +584,7 @@ function toPublicUser(user: {
     name: user.name,
     email: user.email,
     phone: user.phone,
+    registrationNote: user.registrationNote ?? null,
     status: user.status
   });
 }

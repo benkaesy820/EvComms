@@ -70,6 +70,7 @@ const registrationInput = {
   name: "Acceptance Customer",
   email: customerEmail,
   phone: "+233501234567",
+  registrationNote: "I need help with my first support request.",
   password
 };
 const registration = await api("/auth/register", {
@@ -80,6 +81,7 @@ assert.equal(registration.response.status, 201);
 assert.equal(registration.body.user.email, customerEmail);
 assert.equal(registration.body.user.status, "pending");
 assert.equal(registration.body.user.role, "customer");
+assert.equal(registration.body.user.registrationNote, registrationInput.registrationNote);
 
 const duplicateRegistration = await api("/auth/register", {
   method: "POST",
@@ -162,6 +164,7 @@ if (adminEmail && adminPassword) {
   assert.equal(preferencesUpdate.body.preferences.emailNotificationsEnabled, false);
   const customerConversation = await api("/conversations/me", { cookie: customerLogin.cookie });
   assert.equal(customerConversation.response.status, 200);
+  assert.equal(customerConversation.body.conversation.registrationNote, registrationInput.registrationNote);
   const customerMessage = await api(`/conversations/${customerConversation.body.conversation.id}/messages`, {
     method: "POST",
     cookie: customerLogin.cookie,
@@ -212,6 +215,7 @@ if (adminEmail && adminPassword) {
       "agent creation",
       "session listing",
       "notification preferences",
+      "registration note handoff",
       "first message assignment",
       "customer role boundaries",
       "agent role boundaries",

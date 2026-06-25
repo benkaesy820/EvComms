@@ -19,6 +19,7 @@ export const users = mysqlTable(
     phone: varchar("phone", { length: 32 }),
     passwordHash: varchar("password_hash", { length: 255 }).notNull(),
     status: varchar("status", { length: 32 }).notNull(),
+    registrationNote: text("registration_note"),
     emailNotificationsEnabled: int("email_notifications_enabled").notNull().default(1),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull()
@@ -113,6 +114,7 @@ export const conversations = mysqlTable(
     closedAt: timestamp("closed_at"),
     closedBy: varchar("closed_by", { length: 36 }),
     closingNote: text("closing_note"),
+    registrationNote: text("registration_note"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull()
   },
@@ -159,6 +161,7 @@ export const notificationJobs = mysqlTable(
     attempts: int("attempts").notNull().default(0),
     nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
     sentAt: timestamp("sent_at"),
+    provider: varchar("provider", { length: 32 }),
     lastError: text("last_error"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull()

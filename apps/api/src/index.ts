@@ -16,6 +16,11 @@ export interface Env {
   EMAIL_FROM?: string;
   EMAIL_FROM_NAME?: string;
   SMTP_USER?: string;
+  GMAIL_ACCESS_TOKEN?: string;
+  GMAIL_CLIENT_ID?: string;
+  GMAIL_CLIENT_SECRET?: string;
+  GMAIL_REFRESH_TOKEN?: string;
+  GMAIL_FROM?: string;
   REALTIME_ROOM: DurableObjectNamespace<RealtimeRoom>;
 }
 

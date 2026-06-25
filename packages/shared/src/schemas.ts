@@ -22,7 +22,8 @@ export const publicUserSchema = z.object({
   name: z.string(),
   email: z.string().email(),
   phone: z.string().nullable(),
-  status: accountStatusSchema
+  status: accountStatusSchema,
+  registrationNote: z.string().nullable().optional()
 });
 
 export const registerRequestSchema = z.object({
@@ -32,6 +33,7 @@ export const registerRequestSchema = z.object({
     .string()
     .trim()
     .regex(/^(\+233|0)[235]\d{8}$/, "Enter a valid Ghana phone number."),
+  registrationNote: z.string().trim().max(2000).optional(),
   password: z
     .string()
     .min(12)
@@ -93,7 +95,7 @@ export const rejectUserRequestSchema = z.object({
   reason: z.string().trim().max(500).optional()
 });
 
-export const createAgentRequestSchema = registerRequestSchema.extend({
+export const createAgentRequestSchema = registerRequestSchema.omit({ registrationNote: true }).extend({
   phone: z
     .string()
     .trim()
@@ -118,6 +120,7 @@ export const conversationSchema = z.object({
   closedAt: z.string().datetime().nullable(),
   closedBy: z.string().nullable(),
   closingNote: z.string().nullable(),
+  registrationNote: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
 });
@@ -173,6 +176,30 @@ export const realtimeEventSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("message.created"),
     message: messageSchema
+  }),
+  z.object({
+    type: z.literal("conversation.assigned"),
+    conversationId: z.string(),
+    assignedAgentId: z.string().nullable()
+  }),
+  z.object({
+    type: z.literal("conversation.closed"),
+    conversationId: z.string(),
+    closedBy: z.string(),
+    closingNote: z.string()
+  }),
+  z.object({
+    type: z.literal("conversation.reopened"),
+    conversationId: z.string(),
+    reopenedBy: z.string()
+  }),
+  z.object({
+    type: z.literal("conversation.read"),
+    conversationId: z.string(),
+    readerRole: userRoleSchema
+  }),
+  z.object({
+    type: z.literal("settings.updated")
   })
 ]);
 
@@ -187,6 +214,7 @@ export const notificationJobSchema = z.object({
   attempts: z.number(),
   nextAttemptAt: z.string().datetime(),
   sentAt: z.string().datetime().nullable(),
+  provider: z.string().nullable(),
   lastError: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()

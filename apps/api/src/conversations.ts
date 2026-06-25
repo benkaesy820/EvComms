@@ -64,6 +64,7 @@ export async function handleConversations(
         closedAt: conversations.closedAt,
         closedBy: conversations.closedBy,
         closingNote: conversations.closingNote,
+        registrationNote: conversations.registrationNote,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
         customerName: users.name,
@@ -136,6 +137,12 @@ export async function handleConversations(
       agentId: input.agentId
     });
 
+    await broadcastConversationEvent(env, conversation.id, {
+      type: "conversation.assigned",
+      conversationId: conversation.id,
+      assignedAgentId: input.agentId
+    });
+
     await enqueueNotification(env, {
       recipientId: input.agentId,
       type: "conversation.reassigned",
@@ -194,6 +201,13 @@ export async function handleConversations(
       }
     });
 
+    await broadcastConversationEvent(env, conversation.id, {
+      type: "conversation.closed",
+      conversationId: conversation.id,
+      closedBy: actor.id,
+      closingNote: input.note
+    });
+
     const updated = await getConversationById(env, conversation.id);
     return json(conversationResponseSchema.parse({ conversation: serializeConversation(updated) }));
   }
@@ -223,6 +237,12 @@ export async function handleConversations(
 
     await audit(db, actor.id, "conversation.reopened", "conversation", conversation.id, request);
 
+    await broadcastConversationEvent(env, conversation.id, {
+      type: "conversation.reopened",
+      conversationId: conversation.id,
+      reopenedBy: actor.id
+    });
+
     const updated = await getConversationById(env, conversation.id);
     return json(conversationResponseSchema.parse({ conversation: serializeConversation(updated) }));
   }
@@ -248,6 +268,11 @@ export async function handleConversations(
       .limit(200);
 
     await markConversationRead(db, actor.role, conversation);
+    await broadcastConversationEvent(env, conversation.id, {
+      type: "conversation.read",
+      conversationId: conversation.id,
+      readerRole: actor.role
+    });
 
     return json(messagesResponseSchema.parse({ messages: rows.reverse().map(serializeMessage) }));
   }
@@ -305,6 +330,11 @@ export async function handleConversations(
         request,
         { assignedAgentId: nextAssignedAgentId }
       );
+      await broadcastConversationEvent(env, conversation.id, {
+        type: "conversation.assigned",
+        conversationId: conversation.id,
+        assignedAgentId: nextAssignedAgentId
+      });
     }
 
     const [message] = await db
@@ -424,7 +454,22 @@ async function getOrCreateCustomerConversation(env: Env, customerId: string) {
     .where(eq(conversations.customerId, customerId))
     .limit(1);
 
-  if (existing) return existing;
+  const [customer] = await db
+    .select({ registrationNote: users.registrationNote })
+    .from(users)
+    .where(eq(users.id, customerId))
+    .limit(1);
+
+  if (existing) {
+    if (!existing.registrationNote && customer?.registrationNote) {
+      await db
+        .update(conversations)
+        .set({ registrationNote: customer.registrationNote, updatedAt: new Date() })
+        .where(eq(conversations.id, existing.id));
+      return { ...existing, registrationNote: customer.registrationNote };
+    }
+    return existing;
+  }
 
   const id = crypto.randomUUID();
 
@@ -433,6 +478,7 @@ async function getOrCreateCustomerConversation(env: Env, customerId: string) {
       id,
       customerId,
       assignedAgentId: null,
+      registrationNote: customer?.registrationNote ?? null,
       status: "open"
     });
   } catch (error) {
@@ -587,6 +633,7 @@ function serializeConversation(conversation: {
   closedAt: Date | null;
   closedBy: string | null;
   closingNote: string | null;
+  registrationNote?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -603,6 +650,7 @@ function serializeConversation(conversation: {
     closedAt: conversation.closedAt?.toISOString() ?? null,
     closedBy: conversation.closedBy,
     closingNote: conversation.closingNote,
+    registrationNote: conversation.registrationNote ?? null,
     createdAt: conversation.createdAt.toISOString(),
     updatedAt: conversation.updatedAt.toISOString()
   };

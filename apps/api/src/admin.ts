@@ -76,6 +76,7 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
         attempts: notificationJobs.attempts,
         nextAttemptAt: notificationJobs.nextAttemptAt,
         sentAt: notificationJobs.sentAt,
+        provider: notificationJobs.provider,
         lastError: notificationJobs.lastError,
         createdAt: notificationJobs.createdAt,
         updatedAt: notificationJobs.updatedAt
@@ -446,6 +447,7 @@ function toPublicUser(user: {
   email: string;
   phone: string | null;
   status: string;
+  registrationNote?: string | null;
 }) {
   return publicUserSchema.parse({
     id: user.id,
@@ -453,6 +455,7 @@ function toPublicUser(user: {
     name: user.name,
     email: user.email,
     phone: user.phone,
+    registrationNote: user.registrationNote ?? null,
     status: user.status
   });
 }

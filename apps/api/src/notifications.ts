@@ -221,13 +221,14 @@ export async function processNotificationJobs(
     }
 
     try {
-      await sendEmail(env, message);
+      const delivery = await sendEmail(env, message);
 
       await db
         .update(notificationJobs)
         .set({
           status: "sent",
           sentAt: new Date(),
+          provider: delivery.provider,
           lastError: null,
           updatedAt: new Date()
         })

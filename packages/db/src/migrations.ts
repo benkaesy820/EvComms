@@ -9,11 +9,13 @@ const statements = [
     phone VARCHAR(32),
     password_hash VARCHAR(255) NOT NULL,
     status VARCHAR(32) NOT NULL,
+    registration_note TEXT,
     email_notifications_enabled INT NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY users_email_unique (email)
   )`,
+  `ALTER TABLE users ADD COLUMN registration_note TEXT`,
   `ALTER TABLE users ADD COLUMN email_notifications_enabled INT NOT NULL DEFAULT 1`,
   `CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
@@ -87,6 +89,7 @@ const statements = [
     closed_at TIMESTAMP NULL,
     closed_by VARCHAR(36),
     closing_note TEXT,
+    registration_note TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY conversations_customer_id_unique (customer_id),
@@ -105,6 +108,7 @@ const statements = [
   `ALTER TABLE conversations ADD COLUMN closed_at TIMESTAMP NULL`,
   `ALTER TABLE conversations ADD COLUMN closed_by VARCHAR(36)`,
   `ALTER TABLE conversations ADD COLUMN closing_note TEXT`,
+  `ALTER TABLE conversations ADD COLUMN registration_note TEXT`,
   `ALTER TABLE conversations ADD KEY conversations_waiting_idx (status, last_customer_message_at, last_agent_message_at)`,
   `CREATE TABLE IF NOT EXISTS messages (
     id VARCHAR(36) PRIMARY KEY,
@@ -174,6 +178,7 @@ const statements = [
     attempts INT NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sent_at TIMESTAMP NULL,
+    provider VARCHAR(32),
     last_error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -181,7 +186,8 @@ const statements = [
     KEY notification_jobs_status_next_attempt_idx (status, next_attempt_at),
     KEY notification_jobs_recipient_id_idx (recipient_id),
     CONSTRAINT notification_jobs_recipient_id_fk FOREIGN KEY (recipient_id) REFERENCES users(id)
-  )`
+  )`,
+  `ALTER TABLE notification_jobs ADD COLUMN provider VARCHAR(32)`
 ];
 
 export async function runMigrations(connection: Connection<Config>) {
