@@ -148,6 +148,57 @@ export const settings = mysqlTable("settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull()
 });
 
+export const departments = mysqlTable(
+  "departments",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    name: varchar("name", { length: 80 }).notNull(),
+    active: int("active").notNull().default(1),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull()
+  },
+  (table) => [uniqueIndex("departments_name_unique").on(table.name)]
+);
+
+export const agentDepartments = mysqlTable(
+  "agent_departments",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    agentId: varchar("agent_id", { length: 36 }).notNull(),
+    departmentId: varchar("department_id", { length: 36 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex("agent_departments_agent_department_unique").on(table.agentId, table.departmentId),
+    index("agent_departments_agent_id_idx").on(table.agentId),
+    index("agent_departments_department_id_idx").on(table.departmentId)
+  ]
+);
+
+export const reports = mysqlTable(
+  "reports",
+  {
+    id: varchar("id", { length: 36 }).primaryKey(),
+    customerId: varchar("customer_id", { length: 36 }).notNull(),
+    conversationId: varchar("conversation_id", { length: 36 }),
+    departmentId: varchar("department_id", { length: 36 }),
+    title: varchar("title", { length: 160 }).notNull(),
+    body: text("body").notNull(),
+    status: varchar("status", { length: 32 }).notNull(),
+    source: varchar("source", { length: 32 }).notNull(),
+    resolvedBy: varchar("resolved_by", { length: 36 }),
+    resolvedAt: timestamp("resolved_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull()
+  },
+  (table) => [
+    index("reports_customer_id_idx").on(table.customerId),
+    index("reports_conversation_id_idx").on(table.conversationId),
+    index("reports_department_id_idx").on(table.departmentId),
+    index("reports_status_created_idx").on(table.status, table.createdAt)
+  ]
+);
+
 export const notificationJobs = mysqlTable(
   "notification_jobs",
   {

@@ -283,6 +283,62 @@ export const adminHealthResponseSchema = z.object({
   })
 });
 
+export const departmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  active: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+
+export const departmentsResponseSchema = z.object({
+  departments: z.array(departmentSchema)
+});
+
+export const createDepartmentRequestSchema = z.object({
+  name: z.string().trim().min(2).max(80)
+});
+
+export const updateAgentDepartmentsRequestSchema = z.object({
+  departmentIds: z.array(z.string().min(1)).max(20)
+});
+
+export const reportStatusSchema = z.enum(["pending", "investigating", "resolved"]);
+
+export const reportSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  conversationId: z.string().nullable(),
+  departmentId: z.string().nullable(),
+  customerName: z.string().nullable(),
+  title: z.string(),
+  body: z.string(),
+  status: reportStatusSchema,
+  source: z.enum(["registration", "customer"]),
+  resolvedBy: z.string().nullable(),
+  resolvedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime()
+});
+
+export const reportsResponseSchema = z.object({
+  reports: z.array(reportSchema)
+});
+
+export const reportResponseSchema = z.object({
+  report: reportSchema
+});
+
+export const createReportRequestSchema = z.object({
+  title: z.string().trim().min(2).max(160),
+  body: z.string().trim().min(1).max(5000),
+  departmentId: z.string().min(1).optional()
+});
+
+export const updateReportStatusRequestSchema = z.object({
+  status: reportStatusSchema
+});
+
 export const appSettingsSchema = z.object({
   siteName: z.string().trim().min(1).max(80),
   companyName: z.string().trim().min(1).max(120),

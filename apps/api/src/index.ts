@@ -4,6 +4,7 @@ import { handleAuth } from "./auth";
 import { handleConversations } from "./conversations";
 import { HttpError, json, notFound } from "./http";
 import { processNotificationJobs } from "./notifications";
+import { handleReports } from "./reports";
 import { handleSettings } from "./settings";
 import { RealtimeRoom } from "./realtime-room";
 
@@ -65,6 +66,9 @@ export default {
 
       const conversationResponse = await handleConversations(request, env, url.pathname, ctx);
       if (conversationResponse) return withCors(conversationResponse, request);
+
+      const reportResponse = await handleReports(request, env, url.pathname);
+      if (reportResponse) return withCors(reportResponse, request);
 
       return withCors(notFound(), request);
     } catch (error) {

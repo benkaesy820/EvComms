@@ -6,6 +6,7 @@ import type {
   auditLogsResponseSchema,
   authResponseSchema,
   closeConversationRequestSchema,
+  createDepartmentRequestSchema,
   conversationResponseSchema,
   conversationSchema,
   conversationsResponseSchema,
@@ -13,6 +14,9 @@ import type {
   createAgentRequestSchema,
   createMessageRequestSchema,
   createMessageResponseSchema,
+  createReportRequestSchema,
+  departmentSchema,
+  departmentsResponseSchema,
   healthResponseSchema,
   loginRequestSchema,
   messageSchema,
@@ -24,12 +28,17 @@ import type {
   realtimeEventSchema,
   reassignConversationRequestSchema,
   rejectUserRequestSchema,
+  reportResponseSchema,
+  reportSchema,
+  reportsResponseSchema,
   requestPasswordResetSchema,
   registerRequestSchema,
   resetPasswordSchema,
   settingsResponseSchema,
   sessionsResponseSchema,
   updateAccountPreferencesRequestSchema,
+  updateAgentDepartmentsRequestSchema,
+  updateReportStatusRequestSchema,
   updateSettingsRequestSchema,
   usersResponseSchema,
   userRoleSchema
@@ -42,6 +51,15 @@ export type UpdateAccountPreferencesRequest = z.infer<typeof updateAccountPrefer
 export type SessionsResponse = z.infer<typeof sessionsResponseSchema>;
 export type AuditLogsResponse = z.infer<typeof auditLogsResponseSchema>;
 export type AdminHealthResponse = z.infer<typeof adminHealthResponseSchema>;
+export type Department = z.infer<typeof departmentSchema>;
+export type DepartmentsResponse = z.infer<typeof departmentsResponseSchema>;
+export type CreateDepartmentRequest = z.infer<typeof createDepartmentRequestSchema>;
+export type UpdateAgentDepartmentsRequest = z.infer<typeof updateAgentDepartmentsRequestSchema>;
+export type Report = z.infer<typeof reportSchema>;
+export type ReportsResponse = z.infer<typeof reportsResponseSchema>;
+export type ReportResponse = z.infer<typeof reportResponseSchema>;
+export type CreateReportRequest = z.infer<typeof createReportRequestSchema>;
+export type UpdateReportStatusRequest = z.infer<typeof updateReportStatusRequestSchema>;
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 export type PublicUser = z.infer<typeof publicUserSchema>;
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;

@@ -142,6 +142,22 @@ if (adminEmail && adminPassword) {
   assert.equal(agentCreation.response.status, 201);
   assert.equal(agentCreation.body.user.role, "agent");
 
+  const departmentCreation = await api("/admin/departments", {
+    method: "POST",
+    cookie: adminCookie,
+    body: JSON.stringify({ name: `Acceptance Department ${runId.slice(0, 8)}` })
+  });
+  assert.equal(departmentCreation.response.status, 201);
+  const departmentId = departmentCreation.body.departments[0].id;
+
+  const agentDepartments = await api(`/admin/agents/${agentCreation.body.user.id}/departments`, {
+    method: "PUT",
+    cookie: adminCookie,
+    body: JSON.stringify({ departmentIds: [departmentId] })
+  });
+  assert.equal(agentDepartments.response.status, 200);
+  assert.equal(agentDepartments.body.ok, true);
+
   const customerLogin = await login(customerEmail, password);
   assert.equal(customerLogin.response.status, 200);
   assert.equal(customerLogin.body.user.role, "customer");
@@ -165,6 +181,20 @@ if (adminEmail && adminPassword) {
   const customerConversation = await api("/conversations/me", { cookie: customerLogin.cookie });
   assert.equal(customerConversation.response.status, 200);
   assert.equal(customerConversation.body.conversation.registrationNote, registrationInput.registrationNote);
+  const customerReport = await api("/reports", {
+    method: "POST",
+    cookie: customerLogin.cookie,
+    body: JSON.stringify({
+      title: "Acceptance report",
+      body: "The V2 report queue should receive this.",
+      departmentId
+    })
+  });
+  assert.equal(customerReport.response.status, 201);
+  assert.equal(customerReport.body.report.status, "pending");
+  const customerReports = await api("/reports", { cookie: customerLogin.cookie });
+  assert.equal(customerReports.response.status, 200);
+  assert.equal(customerReports.body.reports.some((report) => report.id === customerReport.body.report.id), true);
   const customerMessage = await api(`/conversations/${customerConversation.body.conversation.id}/messages`, {
     method: "POST",
     cookie: customerLogin.cookie,
@@ -208,21 +238,35 @@ if (adminEmail && adminPassword) {
   const auditLogs = await api("/admin/audit-logs?limit=10", { cookie: adminCookie });
   assert.equal(auditLogs.response.status, 200);
   assert.equal(auditLogs.body.logs.length > 0, true);
+  const adminReports = await api("/admin/reports", { cookie: adminCookie });
+  assert.equal(adminReports.response.status, 200);
+  assert.equal(adminReports.body.reports.some((report) => report.id === customerReport.body.report.id), true);
+  const reportStatus = await api(`/admin/reports/${customerReport.body.report.id}/status`, {
+    method: "POST",
+    cookie: adminCookie,
+    body: JSON.stringify({ status: "resolved" })
+  });
+  assert.equal(reportStatus.response.status, 200);
+  assert.equal(reportStatus.body.report.status, "resolved");
 
   checked.push(
     "super admin login",
       "super admin approval",
       "agent creation",
+      "department creation",
+      "agent department assignment",
       "session listing",
       "notification preferences",
       "registration note handoff",
+      "customer reports",
       "first message assignment",
       "customer role boundaries",
       "agent role boundaries",
       "agent notification processing denied",
       "notification dry run",
       "admin health",
-      "audit logs"
+      "audit logs",
+      "admin reports"
     );
 }
 

@@ -1,8 +1,10 @@
-import { auditLogs, conversations, notificationJobs, sessions, users } from "@evbus/db";
+import { agentDepartments, auditLogs, conversations, departments, notificationJobs, sessions, users } from "@evbus/db";
 import {
   authResponseSchema,
   adminHealthResponseSchema,
   auditLogsResponseSchema,
+  createDepartmentRequestSchema,
+  departmentsResponseSchema,
   createAgentRequestSchema,
   notificationJobsResponseSchema,
   pendingUsersResponseSchema,
@@ -10,6 +12,7 @@ import {
   processNotificationJobsResponseSchema,
   publicUserSchema,
   rejectUserRequestSchema,
+  updateAgentDepartmentsRequestSchema,
   usersResponseSchema
 } from "@evbus/shared";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -263,6 +266,97 @@ export async function handleAdmin(request: Request, env: Env, pathname: string) 
     );
   }
 
+  if (pathname === "/admin/departments" && request.method === "GET") {
+    await requireSuperAdmin(request, env);
+    const db = getDb(env);
+    const rows = await db.select().from(departments).orderBy(departments.name).limit(100);
+
+    return json(
+      departmentsResponseSchema.parse({
+        departments: rows.map(serializeDepartment)
+      })
+    );
+  }
+
+  if (pathname === "/admin/departments" && request.method === "POST") {
+    const actor = await requireSuperAdmin(request, env);
+    const input = await readJson(request, createDepartmentRequestSchema);
+    const db = getDb(env);
+    const id = crypto.randomUUID();
+
+    try {
+      await db.insert(departments).values({
+        id,
+        name: input.name,
+        active: 1
+      });
+    } catch (error) {
+      if (error instanceof Error && /Duplicate entry|1062/.test(error.message)) {
+        throw new HttpError(409, "Department already exists.");
+      }
+      throw error;
+    }
+
+    await audit(db, actor.id, "admin.department.created", "department", id, request, {
+      name: input.name
+    });
+
+    const [department] = await db.select().from(departments).where(eq(departments.id, id)).limit(1);
+    if (!department) {
+      throw new HttpError(500, "Department was not saved.");
+    }
+    return json(departmentsResponseSchema.parse({ departments: [serializeDepartment(department)] }), 201);
+  }
+
+  const agentDepartmentsMatch = pathname.match(/^\/admin\/agents\/([^/]+)\/departments$/);
+  if (agentDepartmentsMatch && request.method === "PUT") {
+    const actor = await requireSuperAdmin(request, env);
+    const input = await readJson(request, updateAgentDepartmentsRequestSchema);
+    const db = getDb(env);
+    const agentId = agentDepartmentsMatch[1];
+    if (!agentId) {
+      throw new HttpError(404, "Agent not found.");
+    }
+    const [agent] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, agentId), eq(users.role, "agent"), eq(users.status, "approved")))
+      .limit(1);
+
+    if (!agent) {
+      throw new HttpError(404, "Approved agent not found.");
+    }
+
+    const uniqueDepartmentIds = [...new Set(input.departmentIds)];
+    if (uniqueDepartmentIds.length) {
+      const activeDepartments = await db
+        .select({ id: departments.id })
+        .from(departments)
+        .where(and(inArray(departments.id, uniqueDepartmentIds), eq(departments.active, 1)));
+
+      if (activeDepartments.length !== uniqueDepartmentIds.length) {
+        throw new HttpError(400, "One or more departments are invalid.");
+      }
+    }
+
+    await db.delete(agentDepartments).where(eq(agentDepartments.agentId, agent.id));
+    if (uniqueDepartmentIds.length) {
+      await db.insert(agentDepartments).values(
+        uniqueDepartmentIds.map((departmentId) => ({
+          id: crypto.randomUUID(),
+          agentId: agent.id,
+          departmentId
+        }))
+      );
+    }
+
+    await audit(db, actor.id, "admin.agent_departments.updated", "user", agent.id, request, {
+      departmentIds: uniqueDepartmentIds
+    });
+
+    return json({ ok: true });
+  }
+
   const approveMatch = pathname.match(/^\/admin\/users\/([^/]+)\/approve$/);
   if (approveMatch && request.method === "POST") {
     return updateCustomerStatus(request, env, approveMatch[1], "approved");
@@ -458,6 +552,22 @@ function toPublicUser(user: {
     registrationNote: user.registrationNote ?? null,
     status: user.status
   });
+}
+
+function serializeDepartment(department: {
+  id: string;
+  name: string;
+  active: number;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: department.id,
+    name: department.name,
+    active: department.active !== 0,
+    createdAt: department.createdAt.toISOString(),
+    updatedAt: department.updatedAt.toISOString()
+  };
 }
 
 function getIpPrefix(request: Request) {

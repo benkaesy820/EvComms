@@ -75,6 +75,25 @@ const statements = [
     updated_by VARCHAR(36),
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS departments (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(80) NOT NULL,
+    active INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY departments_name_unique (name)
+  )`,
+  `CREATE TABLE IF NOT EXISTS agent_departments (
+    id VARCHAR(36) PRIMARY KEY,
+    agent_id VARCHAR(36) NOT NULL,
+    department_id VARCHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY agent_departments_agent_department_unique (agent_id, department_id),
+    KEY agent_departments_agent_id_idx (agent_id),
+    KEY agent_departments_department_id_idx (department_id),
+    CONSTRAINT agent_departments_agent_id_fk FOREIGN KEY (agent_id) REFERENCES users(id),
+    CONSTRAINT agent_departments_department_id_fk FOREIGN KEY (department_id) REFERENCES departments(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS conversations (
     id VARCHAR(36) PRIMARY KEY,
     customer_id VARCHAR(36) NOT NULL,
@@ -110,6 +129,28 @@ const statements = [
   `ALTER TABLE conversations ADD COLUMN closing_note TEXT`,
   `ALTER TABLE conversations ADD COLUMN registration_note TEXT`,
   `ALTER TABLE conversations ADD KEY conversations_waiting_idx (status, last_customer_message_at, last_agent_message_at)`,
+  `CREATE TABLE IF NOT EXISTS reports (
+    id VARCHAR(36) PRIMARY KEY,
+    customer_id VARCHAR(36) NOT NULL,
+    conversation_id VARCHAR(36),
+    department_id VARCHAR(36),
+    title VARCHAR(160) NOT NULL,
+    body TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    source VARCHAR(32) NOT NULL,
+    resolved_by VARCHAR(36),
+    resolved_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY reports_customer_id_idx (customer_id),
+    KEY reports_conversation_id_idx (conversation_id),
+    KEY reports_department_id_idx (department_id),
+    KEY reports_status_created_idx (status, created_at),
+    CONSTRAINT reports_customer_id_fk FOREIGN KEY (customer_id) REFERENCES users(id),
+    CONSTRAINT reports_conversation_id_fk FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+    CONSTRAINT reports_department_id_fk FOREIGN KEY (department_id) REFERENCES departments(id),
+    CONSTRAINT reports_resolved_by_fk FOREIGN KEY (resolved_by) REFERENCES users(id)
+  )`,
   `CREATE TABLE IF NOT EXISTS messages (
     id VARCHAR(36) PRIMARY KEY,
     conversation_id VARCHAR(36) NOT NULL,

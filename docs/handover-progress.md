@@ -52,6 +52,7 @@ The product is not a ticket system. Customers should see one human support conve
 - `apps/api/src/admin.ts`: approvals, user management, notification admin operations.
 - `apps/api/src/conversations.ts`: conversations, messages, assignment, close/reopen, realtime entry.
 - `apps/api/src/notifications.ts`: notification queue, merge/debounce, job processing, email message building.
+- `apps/api/src/reports.ts`: V2 customer reports and admin/agent report queue.
 - `apps/api/src/settings.ts`: public and admin settings.
 - `packages/db/src/schema.ts`: current database tables and indexes.
 - `packages/db/src/migrations.ts`: idempotent development migration runner.
@@ -64,6 +65,8 @@ The product is not a ticket system. Customers should see one human support conve
 - Public landing page exists.
 - Single auth page handles login, signup, password reset request, and reset token submission.
 - Signup validates name, email, Ghana phone number, and strong password through shared Zod contracts.
+- Signup accepts an optional registration note.
+- Registration notes are stored on the user, copied to the persistent conversation, and also create a registration-sourced report.
 - Pending customers see a pending account state.
 - Login and logout work.
 - Password reset token flow exists.
@@ -112,6 +115,8 @@ The product is not a ticket system. Customers should see one human support conve
 - Customer reopen is now allowed and verified at API level.
 - Full conversation history remains after close/reopen.
 - Admin/agent conversation list loads from the backend.
+- Registration note is exposed on conversation responses for handoff context.
+- Realtime backend now emits message, assignment, close, reopen, and read events.
 
 ### Recent Conversation State Improvements
 
@@ -199,7 +204,10 @@ Implemented:
 Not fully implemented:
 
 - Production email provider credentials and delivery need final setup.
-- Brevo primary provider and Gmail/SMTP fallback need full production verification.
+- Brevo primary provider is implemented.
+- Gmail API fallback is implemented when Gmail OAuth config is present.
+- Notification jobs track the provider that delivered the email.
+- Production Brevo/Gmail credentials still need deployment verification.
 - Push notifications are not implemented.
 - Notification preferences have backend support but no dedicated UI yet.
 - Health/alerting around notification failures is not implemented.
@@ -220,7 +228,33 @@ Implemented settings:
 
 Important limitation:
 
-- Subsidiaries and departments currently exist as settings/display labels. They are not yet full routing entities and are not assigned to agents/customers.
+- Settings still include simple subsidiary/department labels for display.
+- V2 now has real department tables and agent mappings, but assignment routing does not use them yet.
+
+### V2 Backend Started
+
+Implemented:
+
+- `departments` table.
+- `agent_departments` table.
+- Super Admin department creation/list API.
+- Super Admin agent-department assignment API.
+- `reports` table.
+- Customer report create/list API.
+- Super Admin report queue API.
+- Agent report queue API scoped to assigned conversations.
+- Super Admin/assigned-agent report status update API.
+- Registration notes create a registration-sourced report.
+- Report and department actions are audit logged.
+
+Not yet implemented:
+
+- Department-aware assignment routing.
+- Report UI.
+- Report attachments.
+- Report realtime updates.
+- File storage and upload safety pipeline.
+- Announcements.
 
 ### UI And Layout
 
@@ -275,6 +309,9 @@ Current tables:
 - `conversations`
 - `messages`
 - `settings`
+- `departments`
+- `agent_departments`
+- `reports`
 - `notification_jobs`
 
 Useful indexes already present:
@@ -292,6 +329,9 @@ Useful indexes already present:
 - conversation status/last-message lookup
 - conversation waiting-state lookup
 - message conversation/created lookup
+- department name uniqueness
+- agent-department uniqueness and lookup indexes
+- report customer/conversation/department/status lookup indexes
 - notification status/next-attempt lookup
 - notification recipient lookup
 - notification dedupe uniqueness
@@ -300,9 +340,6 @@ Not yet present:
 
 - files
 - message attachments
-- reports
-- departments as tables
-- agent department assignments
 - announcements
 - announcement reactions/comments
 - user notification preferences
@@ -328,6 +365,7 @@ These are the main things already partly in backend/data but not fully surfaced 
 - Max active conversations per agent: backend assignment respects it, but the UI does not explain capacity/queue decisions yet.
 - Reassignment: UI supports manual reassignment, but no history/details surface.
 - Close/reopen: works, but UI copy and timeline display need polish.
+- V2 departments/reports: backend exists, no UI wiring yet.
 
 ## Verification Already Performed
 
@@ -358,6 +396,11 @@ Recent acceptance coverage includes:
 - session listing
 - notification preferences
 - first message assignment
+- registration note handoff
+- department creation
+- agent department assignment
+- customer reports
+- admin reports
 - admin health
 - audit logs
 - web shell
@@ -368,12 +411,13 @@ Additional manual/API verification:
 - Chat message caching improves revisit speed.
 - Local migration endpoint successfully applied the recent conversation columns/index.
 - Local migration endpoint successfully applied the user notification preference column and audit indexes.
+- Local migration endpoint successfully applied registration-note, notification-provider, department, agent-department, and report tables/columns.
 
 ## Current Git State Notes
 
 Latest pushed commit at handover time:
 
-- `5625b71 Improve conversation waiting state`
+- `1a8320f Finish V1 backend support loop`
 
 There were untracked local files observed:
 
@@ -438,8 +482,8 @@ To find the latest local test emails, query approved users ordered by `updated_a
    - Customer-specific chat view polish.
 
 2. Finish notification delivery.
-   - Configure production email provider.
-   - Add fallback provider.
+   - Configure production email providers.
+   - Verify Brevo primary and Gmail API fallback.
    - Verify password reset and approval emails deliver immediately.
    - Verify debounced offline message emails.
    - Add visible admin failure status and retry details.
@@ -492,9 +536,7 @@ To find the latest local test emails, query approved users ordered by `updated_a
 - Signed expiring file access.
 - Customer upload permission toggle.
 - Registration note/report handoff.
-- Customer reports queue.
-- Departments as database entities.
-- Agent-department assignments.
+- Report attachments.
 - Advanced department/subsidiary routing.
 - Agent presence and typing indicators.
 - Read receipts.
@@ -513,33 +555,48 @@ To find the latest local test emails, query approved users ordered by `updated_a
 
 ## Recommended Next Build Order
 
-1. Conversation UI completion.
+1. Wire backend-complete V1 surfaces into UI.
+   - Registration note context.
+   - Realtime assignment/close/reopen/read events.
+   - Notification provider/error details.
+   - Audit logs.
+   - Admin health.
+   - Sessions and notification preferences.
+
+2. Conversation UI completion.
    - This is the highest customer/agent value and uses the backend state that now exists.
 
-2. Notification delivery hardening.
+3. Notification delivery hardening.
    - The app is only useful if customers know when replies arrive.
+   - Production Brevo and Gmail OAuth secrets need verification.
 
-3. Audit log UI.
+4. V2 report/department UI.
+   - Department management.
+   - Agent department assignment.
+   - Customer report creation/listing.
+   - Admin/agent report queue and status updates.
+
+5. Audit log UI.
    - Required for business disputes and admin confidence.
 
-4. Admin/account backend UI wiring.
+6. Admin/account backend UI wiring.
    - Sessions, preferences, admin health, and notification details now have backend support.
 
-5. Assignment hardening.
+7. Assignment hardening.
    - Make workload distribution visible and reliable.
 
-6. Settings/admin polish.
+8. Settings/admin polish.
    - Make operational controls clear without adding unnecessary complexity.
 
-7. Production deployment checklist.
+9. Production deployment checklist.
    - Secrets, provider config, domain, Cloudflare routes, migrations, backup, and monitoring.
 
 ## Known Risks
 
-- Notification delivery is not yet production-proven.
-- Realtime exists but does not yet cover typing, presence, read receipts, assignment updates, or settings updates.
+- Notification provider fallback is implemented, but production delivery is not yet secret-verified.
+- Realtime now covers assignment, close, reopen, and read events; it still does not cover typing, presence, report updates, announcement updates, or settings updates.
 - Shared conversation UI risks becoming too admin-shaped for customers unless customer view is polished separately.
-- Departments/subsidiaries can mislead users if they look operational before routing actually uses them.
+- Departments now exist as backend entities and agent mappings, but assignment routing does not use them yet.
 - Acceptance tests are good for the spine but not enough for launch; they need more business regressions.
 - Migration runner is intentionally simple and idempotent for development; production migrations need a more controlled process before real customers.
 
@@ -547,11 +604,6 @@ To find the latest local test emails, query approved users ordered by `updated_a
 
 V1 should only be called complete when these are true:
 
-- Customer can sign up, wait, get approved, log in, chat, receive notifications, and reopen closed conversations.
-- Agent can log in, see assigned/waiting conversations, reply quickly, close with a note, and trust the list order.
-- Super Admin can approve/reject, create/suspend users, reassign conversations, process/inspect notifications, edit core settings, and review audit logs.
-- Notifications are reliable enough for real customers.
-- Role boundaries are tested and enforced in the backend.
-- Chat load feels fast on repeat opens and slow networks.
-- UI is compact, polished, and not empty on core pages.
-- Critical checks pass: typecheck, tests, web build, acceptance, and focused manual browser QA.
+Backend V1 status: complete for the core support loop as of `1a8320f`.
+
+Frontend V1 status: not complete. UI still needs to expose several backend-complete surfaces and polish the core workflows.

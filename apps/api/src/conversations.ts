@@ -446,7 +446,7 @@ async function broadcastConversationEvent(env: Env, conversationId: string, even
   await room.broadcast(JSON.stringify(event));
 }
 
-async function getOrCreateCustomerConversation(env: Env, customerId: string) {
+export async function getOrCreateCustomerConversation(env: Env, customerId: string) {
   const db = getDb(env);
   const [existing] = await db
     .select()

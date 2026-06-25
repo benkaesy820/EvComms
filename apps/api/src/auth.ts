@@ -1,4 +1,4 @@
-import { auditLogs, authRateLimits, passwordResetTokens, runMigrations, sessions, users } from "@evbus/db";
+import { auditLogs, authRateLimits, passwordResetTokens, reports, runMigrations, sessions, users } from "@evbus/db";
 import {
   accountPreferencesResponseSchema,
   authResponseSchema,
@@ -158,6 +158,19 @@ async function register(request: Request, env: Env) {
     passwordHash,
     status: "pending"
   });
+
+  if (input.registrationNote) {
+    await db.insert(reports).values({
+      id: crypto.randomUUID(),
+      customerId: id,
+      conversationId: null,
+      departmentId: null,
+      title: "Registration report",
+      body: input.registrationNote,
+      status: "pending",
+      source: "registration"
+    });
+  }
 
   await audit(db, null, "customer.registered", "user", id, request, {
     email,
